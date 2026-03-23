@@ -1,65 +1,141 @@
-import Image from "next/image";
+'use client';
 
-export default function Home() {
+import { useState, useEffect, useCallback } from 'react';
+import { PageHeader } from '@/components/layout/PageHeader';
+import { MetricCard } from '@/components/shared/MetricCard';
+import { EventTable } from '@/components/shared/EventTable';
+import { APP_REGISTRY, DATE_RANGES, type AppId } from '@/lib/constants';
+import type { ActivityEvent } from '@/types';
+import { Activity, AlertTriangle, Clock, DollarSign } from 'lucide-react';
+
+interface Summary {
+  totalEvents: number;
+  errorCount: number;
+  appCounts: Record<string, number>;
+  categoryCounts: Record<string, number>;
+  avgDurationMs: number | null;
+  totalCostUsd: number;
+}
+
+export default function OverviewPage() {
+  const [dateRange, setDateRange] = useState('7d');
+  const [summary, setSummary] = useState<Summary | null>(null);
+  const [events, setEvents] = useState<ActivityEvent[]>([]);
+  const [loading, setLoading] = useState(true);
+
+  const hours = DATE_RANGES.find(r => r.value === dateRange)?.hours || 168;
+
+  const fetchData = useCallback(async () => {
+    setLoading(true);
+    try {
+      const [summaryRes, eventsRes] = await Promise.all([
+        fetch(`/api/events/summary?hours=${hours}`),
+        fetch(`/api/events?hours=${hours}&limit=50`),
+      ]);
+      const summaryData = await summaryRes.json();
+      const eventsData = await eventsRes.json();
+      setSummary(summaryData);
+      setEvents(eventsData.events || []);
+    } catch (err) {
+      console.error('Failed to fetch analytics:', err);
+    }
+    setLoading(false);
+  }, [hours]);
+
+  useEffect(() => { fetchData(); }, [fetchData]);
+
   return (
-    <div className="flex flex-col flex-1 items-center justify-center bg-zinc-50 font-sans dark:bg-black">
-      <main className="flex flex-1 w-full max-w-3xl flex-col items-center justify-between py-32 px-16 bg-white dark:bg-black sm:items-start">
-        <Image
-          className="dark:invert"
-          src="/next.svg"
-          alt="Next.js logo"
-          width={100}
-          height={20}
-          priority
-        />
-        <div className="flex flex-col items-center gap-6 text-center sm:items-start sm:text-left">
-          <h1 className="max-w-xs text-3xl font-semibold leading-10 tracking-tight text-black dark:text-zinc-50">
-            To get started, edit the page.tsx file.
-          </h1>
-          <p className="max-w-md text-lg leading-8 text-zinc-600 dark:text-zinc-400">
-            Looking for a starting point or more instructions? Head over to{" "}
-            <a
-              href="https://vercel.com/templates?framework=next.js&utm_source=create-next-app&utm_medium=appdir-template-tw&utm_campaign=create-next-app"
-              className="font-medium text-zinc-950 dark:text-zinc-50"
-            >
-              Templates
-            </a>{" "}
-            or the{" "}
-            <a
-              href="https://nextjs.org/learn?utm_source=create-next-app&utm_medium=appdir-template-tw&utm_campaign=create-next-app"
-              className="font-medium text-zinc-950 dark:text-zinc-50"
-            >
-              Learning
-            </a>{" "}
-            center.
-          </p>
+    <div className="h-full flex flex-col">
+      <PageHeader
+        title="Overview"
+        subtitle="Cross-app activity and health"
+        dateRange={dateRange}
+        onDateRangeChange={setDateRange}
+        onRefresh={fetchData}
+        loading={loading}
+      />
+
+      <div className="flex-1 overflow-auto px-8 py-6 space-y-6">
+        {/* KPI Cards */}
+        <div className="grid grid-cols-4 gap-4">
+          <MetricCard
+            label="Total Events"
+            value={summary?.totalEvents ?? '—'}
+            subtitle={`Last ${dateRange}`}
+            color="var(--accent)"
+          />
+          <MetricCard
+            label="Errors"
+            value={summary?.errorCount ?? '—'}
+            subtitle={summary?.totalEvents ? `${((summary.errorCount / summary.totalEvents) * 100).toFixed(1)}% error rate` : undefined}
+            color={summary?.errorCount ? 'var(--error)' : 'var(--success)'}
+          />
+          <MetricCard
+            label="Avg Duration"
+            value={summary?.avgDurationMs != null ? `${(summary.avgDurationMs / 1000).toFixed(1)}s` : '—'}
+            subtitle="Performance events"
+            color="var(--warning)"
+          />
+          <MetricCard
+            label="LLM Cost"
+            value={summary?.totalCostUsd != null ? `$${summary.totalCostUsd.toFixed(4)}` : '—'}
+            subtitle={`Last ${dateRange}`}
+            color="var(--muted)"
+          />
         </div>
-        <div className="flex flex-col gap-4 text-base font-medium sm:flex-row">
-          <a
-            className="flex h-12 w-full items-center justify-center gap-2 rounded-full bg-foreground px-5 text-background transition-colors hover:bg-[#383838] dark:hover:bg-[#ccc] md:w-[158px]"
-            href="https://vercel.com/new?utm_source=create-next-app&utm_medium=appdir-template-tw&utm_campaign=create-next-app"
-            target="_blank"
-            rel="noopener noreferrer"
-          >
-            <Image
-              className="dark:invert"
-              src="/vercel.svg"
-              alt="Vercel logomark"
-              width={16}
-              height={16}
-            />
-            Deploy Now
-          </a>
-          <a
-            className="flex h-12 w-full items-center justify-center rounded-full border border-solid border-black/[.08] px-5 transition-colors hover:border-transparent hover:bg-black/[.04] dark:border-white/[.145] dark:hover:bg-[#1a1a1a] md:w-[158px]"
-            href="https://nextjs.org/docs?utm_source=create-next-app&utm_medium=appdir-template-tw&utm_campaign=create-next-app"
-            target="_blank"
-            rel="noopener noreferrer"
-          >
-            Documentation
-          </a>
+
+        {/* App Breakdown */}
+        <div
+          className="rounded-xl border p-5"
+          style={{ background: 'var(--card)', borderColor: 'var(--card-border)' }}
+        >
+          <h2 className="text-sm font-semibold mb-4" style={{ color: 'var(--foreground)' }}>Activity by App</h2>
+          <div className="grid grid-cols-4 gap-4">
+            {(Object.keys(APP_REGISTRY) as AppId[]).map(appId => {
+              const app = APP_REGISTRY[appId];
+              const count = summary?.appCounts[appId] || 0;
+              return (
+                <div key={appId} className="flex items-center gap-3 p-3 rounded-lg" style={{ background: count > 0 ? `${app.color}08` : 'transparent' }}>
+                  <span className="w-3 h-3 rounded-full" style={{ background: app.color }} />
+                  <div>
+                    <div className="text-sm font-medium" style={{ color: 'var(--foreground)' }}>{app.shortName}</div>
+                    <div className="text-lg font-bold" style={{ color: count > 0 ? app.color : 'var(--muted)' }}>{count}</div>
+                  </div>
+                </div>
+              );
+            })}
+          </div>
         </div>
-      </main>
+
+        {/* Category Breakdown */}
+        {summary?.categoryCounts && Object.keys(summary.categoryCounts).length > 0 && (
+          <div
+            className="rounded-xl border p-5"
+            style={{ background: 'var(--card)', borderColor: 'var(--card-border)' }}
+          >
+            <h2 className="text-sm font-semibold mb-4" style={{ color: 'var(--foreground)' }}>Events by Category</h2>
+            <div className="flex gap-6">
+              {Object.entries(summary.categoryCounts).sort((a, b) => b[1] - a[1]).map(([cat, count]) => (
+                <div key={cat} className="text-center">
+                  <div className="text-lg font-bold" style={{ color: 'var(--foreground)' }}>{count}</div>
+                  <div className="text-xs" style={{ color: 'var(--muted)' }}>{cat}</div>
+                </div>
+              ))}
+            </div>
+          </div>
+        )}
+
+        {/* Recent Events */}
+        <div
+          className="rounded-xl border overflow-hidden"
+          style={{ background: 'var(--card)', borderColor: 'var(--card-border)' }}
+        >
+          <div className="px-5 py-4 border-b" style={{ borderColor: 'var(--card-border)' }}>
+            <h2 className="text-sm font-semibold" style={{ color: 'var(--foreground)' }}>Recent Events</h2>
+          </div>
+          <EventTable events={events} />
+        </div>
+      </div>
     </div>
   );
 }
