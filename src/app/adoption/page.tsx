@@ -214,7 +214,7 @@ export default function AdoptionPage() {
           {/* Top features table */}
           {data?.topFeatures && data.topFeatures.length > 0 && (
             <div
-              className="rounded-xl border overflow-hidden"
+              className="rounded-xl border"
               style={{ background: 'var(--card)', borderColor: 'var(--card-border)' }}
             >
               <div className="px-5 py-4 border-b" style={{ borderColor: 'var(--card-border)' }}>
@@ -222,7 +222,8 @@ export default function AdoptionPage() {
                   Top Features
                 </h2>
               </div>
-              <table className="w-full text-sm">
+              <div className="overflow-x-auto">
+              <table className="w-full text-sm min-w-[540px]">
                 <thead>
                   <tr className="border-b" style={{ borderColor: 'var(--card-border)' }}>
                     <th className="text-left px-5 py-2.5 text-xs font-medium" style={{ color: 'var(--muted)' }}>#</th>
@@ -267,6 +268,7 @@ export default function AdoptionPage() {
                   })}
                 </tbody>
               </table>
+              </div>
             </div>
           )}
 
