@@ -113,9 +113,9 @@ export default function AdoptionPage() {
         loading={loading}
       />
 
-      <div className="flex-1 overflow-auto px-8 py-6 space-y-6">
+      <div className="flex-1 overflow-auto px-4 sm:px-6 lg:px-8 py-4 sm:py-6 space-y-4 sm:space-y-6">
         {/* KPI Cards */}
-        <div className="grid grid-cols-4 gap-4">
+        <div className="grid grid-cols-2 lg:grid-cols-4 gap-3 sm:gap-4">
           <MetricCard
             label="Active Features"
             value={uniqueFeatures || '—'}

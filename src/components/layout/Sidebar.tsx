@@ -2,7 +2,7 @@
 
 import { usePathname } from 'next/navigation';
 import Link from 'next/link';
-import { BarChart3, LayoutDashboard, Zap, GitBranch, Users, FileText, ClipboardList, Layers, Truck, Target } from 'lucide-react';
+import { BarChart3, LayoutDashboard, Zap, GitBranch, Users, FileText, ClipboardList, Layers, Truck, Target, X } from 'lucide-react';
 
 const navItems = [
   { href: '/', label: 'Overview', icon: LayoutDashboard },
@@ -19,13 +19,21 @@ const appItems = [
   { href: '/apps/kpi_board', label: 'KPI Board', icon: Target, color: '#dc2626' },
 ];
 
-export function Sidebar() {
+interface SidebarProps {
+  onClose?: () => void;
+}
+
+export function Sidebar({ onClose }: SidebarProps) {
   const pathname = usePathname();
+
+  function handleNav() {
+    onClose?.();
+  }
 
   return (
     <aside className="w-56 h-full flex flex-col border-r" style={{ borderColor: 'var(--card-border)', background: 'var(--card)' }}>
       {/* Logo */}
-      <div className="px-5 py-5 border-b" style={{ borderColor: 'var(--card-border)' }}>
+      <div className="px-5 py-5 border-b flex items-center justify-between" style={{ borderColor: 'var(--card-border)' }}>
         <div className="flex items-center gap-2">
           <BarChart3 size={22} style={{ color: 'var(--accent)' }} />
           <div>
@@ -33,10 +41,15 @@ export function Sidebar() {
             <div className="text-xs" style={{ color: 'var(--muted)' }}>Analytics Dashboard</div>
           </div>
         </div>
+        {onClose && (
+          <button onClick={onClose} className="p-1 rounded-lg hover:bg-gray-100 transition-colors lg:hidden">
+            <X size={18} style={{ color: 'var(--muted)' }} />
+          </button>
+        )}
       </div>
 
       {/* Main Nav */}
-      <nav className="flex-1 px-3 py-4 space-y-1">
+      <nav className="flex-1 px-3 py-4 space-y-1 overflow-y-auto">
         <div className="px-2 mb-2 text-xs font-semibold uppercase tracking-wider" style={{ color: 'var(--muted)' }}>
           Views
         </div>
@@ -46,6 +59,7 @@ export function Sidebar() {
             <Link
               key={item.href}
               href={item.href}
+              onClick={handleNav}
               className="flex items-center gap-2.5 px-3 py-2 rounded-lg text-sm transition-colors"
               style={{
                 background: isActive ? 'var(--accent-light)' : 'transparent',
@@ -68,6 +82,7 @@ export function Sidebar() {
             <Link
               key={item.href}
               href={item.href}
+              onClick={handleNav}
               className="flex items-center gap-2.5 px-3 py-2 rounded-lg text-sm transition-colors"
               style={{
                 background: isActive ? 'var(--accent-light)' : 'transparent',

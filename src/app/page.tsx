@@ -55,9 +55,9 @@ export default function OverviewPage() {
         loading={loading}
       />
 
-      <div className="flex-1 overflow-auto px-8 py-6 space-y-6">
+      <div className="flex-1 overflow-auto px-4 sm:px-6 lg:px-8 py-4 sm:py-6 space-y-4 sm:space-y-6">
         {/* KPI Cards */}
-        <div className="grid grid-cols-4 gap-4">
+        <div className="grid grid-cols-2 lg:grid-cols-4 gap-3 sm:gap-4">
           <MetricCard
             label="Total Events"
             value={summary?.totalEvents ?? '—'}
@@ -90,7 +90,7 @@ export default function OverviewPage() {
           style={{ background: 'var(--card)', borderColor: 'var(--card-border)' }}
         >
           <h2 className="text-sm font-semibold mb-4" style={{ color: 'var(--foreground)' }}>Activity by App</h2>
-          <div className="grid grid-cols-4 gap-4">
+          <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-5 gap-3 sm:gap-4">
             {(Object.keys(APP_REGISTRY) as AppId[]).map(appId => {
               const app = APP_REGISTRY[appId];
               const count = summary?.appCounts[appId] || 0;
@@ -114,7 +114,7 @@ export default function OverviewPage() {
             style={{ background: 'var(--card)', borderColor: 'var(--card-border)' }}
           >
             <h2 className="text-sm font-semibold mb-4" style={{ color: 'var(--foreground)' }}>Events by Category</h2>
-            <div className="flex gap-6">
+            <div className="flex flex-wrap gap-4 sm:gap-6">
               {Object.entries(summary.categoryCounts).sort((a, b) => b[1] - a[1]).map(([cat, count]) => (
                 <div key={cat} className="text-center">
                   <div className="text-lg font-bold" style={{ color: 'var(--foreground)' }}>{count}</div>

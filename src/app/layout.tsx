@@ -1,6 +1,6 @@
 import type { Metadata } from "next";
 import "./globals.css";
-import { Sidebar } from "@/components/layout/Sidebar";
+import { LayoutShell } from "@/components/layout/LayoutShell";
 
 export const metadata: Metadata = {
   title: "Xavant Ops Dashboard",
@@ -11,10 +11,7 @@ export default function RootLayout({ children }: Readonly<{ children: React.Reac
   return (
     <html lang="en" className="h-full">
       <body className="h-full flex antialiased">
-        <Sidebar />
-        <main className="flex-1 overflow-auto">
-          {children}
-        </main>
+        <LayoutShell>{children}</LayoutShell>
       </body>
     </html>
   );
