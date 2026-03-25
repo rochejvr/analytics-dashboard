@@ -56,7 +56,23 @@ const EVENTS: Record<string, string> = {
   'bom_analysis:tab.switched':            'Switched between results dashboard tabs',
 
   // ── Shipping ─────────────────────────────────────────────────────
-  // (not yet instrumented — add events here when shipping analytics are added)
+  'shipping:shipment.created':               'New shipment document created',
+  'shipping:shipment.edited':                'Shipment details updated',
+  'shipping:shipment.deleted':               'Shipment deleted',
+  'shipping:shipment.status_changed':        'Shipment status advanced or reversed in workflow',
+  'shipping:document.commercial_invoice':    'Commercial invoice PDF generated',
+  'shipping:document.packing_list':          'Packing list PDF generated',
+  'shipping:document.certificate_of_origin': 'Certificate of origin PDF generated',
+  'shipping:pod.uploaded':                   'Proof of delivery file uploaded',
+  'shipping:pod.removed':                    'Proof of delivery file removed',
+  'shipping:tracking.updated':               'Tracking number set or updated',
+  'shipping:client.created':                 'New shipping client added to master',
+  'shipping:client.edited':                  'Client details updated',
+  'shipping:client.deleted':                 'Client removed from master',
+  'shipping:product.created':                'New product added to master',
+  'shipping:product.edited':                 'Product details updated',
+  'shipping:product.deleted':                'Product removed from master',
+  'shipping:product.imported':               'Products imported in bulk from Excel file',
 
   // ── PO Register ──────────────────────────────────────────────────
   // (not yet instrumented — add events here when PO Register analytics are added)
