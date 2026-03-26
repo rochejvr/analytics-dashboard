@@ -1,6 +1,6 @@
 'use client';
 
-interface PipelineStage { name: string; count: number; description?: string }
+interface PipelineStage { name: string; count: number; description?: string; avgDurationMs?: number | null }
 interface Transition { from: string; to: string; avgMs: number; medianMs: number; count: number }
 interface RejectedStage { name: string; count: number; fromStage: string }
 interface ExtraMetric { label: string; value: number; color?: string }
@@ -91,10 +91,13 @@ export function PipelineFunnel({ pipeline }: PipelineFunnelProps) {
           <span className="text-sm font-bold" style={{ color: 'var(--foreground)' }}>{pipeline.name}</span>
         </div>
         {avgDurationMs != null && (
-          <span className="text-[11px] font-semibold tabular-nums px-2.5 py-1 rounded-full"
-            style={{ color: 'var(--muted)', background: 'var(--background)' }}>
-            Avg {fmt(avgDurationMs)}
-          </span>
+          <div className="flex items-center gap-2">
+            <span className="text-[11px] font-medium" style={{ color: 'var(--muted)' }}>Total Avg</span>
+            <span className="text-base font-extrabold tabular-nums px-3 py-1 rounded-lg"
+              style={{ color: 'var(--foreground)', background: 'var(--background)', fontFamily: 'ui-monospace, SFMono-Regular, monospace' }}>
+              {fmt(avgDurationMs)}
+            </span>
+          </div>
         )}
       </div>
 
@@ -133,34 +136,25 @@ export function PipelineFunnel({ pipeline }: PipelineFunnelProps) {
                       style={{ fontFamily: 'ui-monospace, SFMono-Regular, monospace' }}>
                       {stage.count}
                     </span>
+                    {stage.avgDurationMs != null && (
+                      <span className="text-[9px] font-semibold text-white/60 tabular-nums leading-none mt-1.5"
+                        style={{ fontFamily: 'ui-monospace, SFMono-Regular, monospace' }}>
+                        {fmt(stage.avgDurationMs)}
+                      </span>
+                    )}
                   </div>
 
                   {/* Connector between stages */}
                   {nextStage && (
-                    <div className="flex flex-col items-center justify-center shrink-0" style={{ width: 52 }}>
-                      {/* Timing pill */}
-                      {trans ? (
-                        <div
-                          className="text-[9px] font-bold tabular-nums px-2 py-[3px] rounded-full leading-none whitespace-nowrap"
-                          style={{
-                            color: tColor(trans.avgMs),
-                            background: `color-mix(in srgb, ${tColor(trans.avgMs)} 8%, transparent)`,
-                            border: `1px solid color-mix(in srgb, ${tColor(trans.avgMs)} 18%, transparent)`,
-                          }}
-                        >
-                          {fmt(trans.avgMs)}
-                        </div>
-                      ) : (
-                        <div style={{ height: 18 }} />
-                      )}
+                    <div className="flex flex-col items-center justify-center shrink-0" style={{ width: 40 }}>
                       {/* Arrow */}
-                      <svg width="16" height="8" viewBox="0 0 16 8" className="my-1 shrink-0" style={{ color: 'var(--card-border)' }}>
+                      <svg width="16" height="8" viewBox="0 0 16 8" className="shrink-0" style={{ color: 'var(--card-border)' }}>
                         <path d="M0 4H13M10 1L13 4L10 7" stroke="currentColor" strokeWidth="1.3" fill="none" strokeLinecap="round" strokeLinejoin="round" />
                       </svg>
                       {/* Conversion % */}
                       {conv != null && (
-                        <span className="text-[9px] font-semibold tabular-nums leading-none"
-                          style={{ color: 'var(--muted)', opacity: 0.7 }}>
+                        <span className="text-[9px] font-semibold tabular-nums leading-none mt-1"
+                          style={{ color: 'var(--muted)', opacity: 0.6 }}>
                           {conv}%
                         </span>
                       )}
@@ -197,23 +191,23 @@ export function PipelineFunnel({ pipeline }: PipelineFunnelProps) {
                         {stage.description}
                       </span>
                     </div>
-                    {!isLast && <div className="shrink-0" style={{ width: 52 }} />}
+                    {!isLast && <div className="shrink-0" style={{ width: 40 }} />}
                   </div>
                 );
               })}
               {rejectedStage && rejectedStage.count > 0 && (
-                <div className="shrink-0" style={{ width: 52 }} />
+                <div className="shrink-0" style={{ width: 40 }} />
               )}
             </div>
           )}
         </div>
 
         {/* ── KPI sidebar ── */}
-        <div className="shrink-0 border-l flex flex-col items-center justify-center gap-5 py-5"
-          style={{ borderColor: 'var(--card-border)', width: 160 }}>
+        <div className="shrink-0 border-l flex flex-col justify-center py-5 px-5"
+          style={{ borderColor: 'var(--card-border)', width: 180 }}>
           {/* Pass rate ring */}
-          <div className="text-center">
-            <div className="relative mx-auto" style={{ width: 56, height: 56 }}>
+          <div className="flex items-center gap-3 mb-4">
+            <div className="relative shrink-0" style={{ width: 52, height: 52 }}>
               <svg viewBox="0 0 36 36" className="w-full h-full -rotate-90">
                 <circle cx="18" cy="18" r="15" fill="none" stroke="var(--card-border)" strokeWidth="2.5" />
                 <circle cx="18" cy="18" r="15" fill="none"
@@ -222,26 +216,33 @@ export function PipelineFunnel({ pipeline }: PipelineFunnelProps) {
                   strokeDasharray={`${passRate * 0.942} 94.2`}
                   strokeLinecap="round" />
               </svg>
-              <span className="absolute inset-0 flex items-center justify-center text-base font-extrabold tabular-nums"
+              <span className="absolute inset-0 flex items-center justify-center text-sm font-extrabold tabular-nums"
                 style={{ color: passRate >= 80 ? '#16a34a' : passRate >= 50 ? '#d97706' : '#dc2626' }}>
                 {passRate}%
               </span>
             </div>
-            <div className="text-[11px] font-semibold mt-1.5" style={{ color: 'var(--muted)' }}>{passLabel}</div>
+            <div>
+              <div className="text-xs font-semibold" style={{ color: 'var(--foreground)' }}>{passLabel}</div>
+              <div className="text-[10px]" style={{ color: 'var(--muted)' }}>First pass</div>
+            </div>
           </div>
 
-          {/* Extra metrics */}
-          {extraMetrics?.map(m => (
-            <div key={m.label} className="flex items-center gap-2.5">
-              <div className="w-10 h-10 rounded-lg flex items-center justify-center shrink-0"
-                style={{ background: 'var(--background)' }}>
-                <span className="text-sm font-extrabold tabular-nums" style={{ color: m.color || 'var(--muted)' }}>
-                  {m.value}
-                </span>
-              </div>
-              <span className="text-[11px] font-medium leading-tight" style={{ color: 'var(--muted)' }}>{m.label}</span>
+          {/* Extra metrics — aligned grid */}
+          {extraMetrics && extraMetrics.length > 0 && (
+            <div className="flex flex-col gap-2.5">
+              {extraMetrics.map(m => (
+                <div key={m.label} className="flex items-center gap-3">
+                  <div className="w-10 h-10 rounded-lg flex items-center justify-center shrink-0"
+                    style={{ background: 'var(--background)' }}>
+                    <span className="text-sm font-extrabold tabular-nums" style={{ color: m.color || 'var(--muted)' }}>
+                      {m.value}
+                    </span>
+                  </div>
+                  <span className="text-xs font-medium" style={{ color: 'var(--muted)' }}>{m.label}</span>
+                </div>
+              ))}
             </div>
-          ))}
+          )}
         </div>
       </div>
 

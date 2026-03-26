@@ -180,13 +180,12 @@ async function handleBomPipeline(hours: number, since: string) {
     }
   }
 
-  // Count unique runs that reached each stage (prevents reruns inflating counts)
+  // Count unique runs that reached each stage
   const stageValues = Object.values(stageMap);
   const dataLoad = stageValues.filter(s => s['Data Load']).length;
   const analyze = stageValues.filter(s => s['Analyze']).length;
   const failed = stageValues.filter(s => s['Failed']).length;
   const exported = stageValues.filter(s => s['Export']).length;
-  // Review = everyone who completed analysis (they see results before deciding to export)
   const review = analyze;
 
   // Pass/fail: check the last analysis.completed event per run
@@ -200,40 +199,49 @@ async function handleBomPipeline(hours: number, since: string) {
     }
   }
   const failedAnalysis = analyze - passed;
-
   const passRate = analyze > 0 ? Math.round((passed / analyze) * 100) : 0;
 
-  // Transitions — Analyze→Export remapped to Review→Export for display
-  const rawTransitions = computeTransitions(stageMap, [
-    ['Data Load', 'Analyze'],
-    ['Analyze', 'Export'],
-  ]);
-  const transitions = rawTransitions.map(t =>
-    t.from === 'Analyze' && t.to === 'Export' ? { ...t, from: 'Review', to: 'Export' } : t
-  );
-
-  // Full pipeline duration (data load → export or → analyze)
-  const fullDurations: number[] = [];
+  // Per-stage average durations (time spent IN each stage)
+  const stageDurations: Record<string, number[]> = {
+    'Data Load': [], 'Analyze': [], 'Review': [],
+  };
   for (const stages of Object.values(stageMap)) {
-    const start = stages['Data Load'] || stages['Analyze'];
-    const end = stages['Export'] || stages['Analyze'];
-    if (start && end) {
-      const ms = new Date(end).getTime() - new Date(start).getTime();
-      if (ms > 0) fullDurations.push(ms);
+    // Data Load = bom.uploaded/files.uploaded → analysis.started
+    if (stages['Data Load'] && stages['_started']) {
+      const ms = new Date(stages['_started']).getTime() - new Date(stages['Data Load']).getTime();
+      if (ms >= 0 && ms < 3600000) stageDurations['Data Load'].push(ms);
+    }
+    // Analyze = analysis.started → analysis.completed
+    if (stages['_started'] && stages['Analyze']) {
+      const ms = new Date(stages['Analyze']).getTime() - new Date(stages['_started']).getTime();
+      if (ms >= 0 && ms < 3600000) stageDurations['Analyze'].push(ms);
+    }
+    // Review = analysis.completed → report.exported_pdf
+    if (stages['Analyze'] && stages['Export']) {
+      const ms = new Date(stages['Export']).getTime() - new Date(stages['Analyze']).getTime();
+      if (ms >= 0 && ms < 3600000) stageDurations['Review'].push(ms);
     }
   }
-  const avgDurationMs = fullDurations.length > 0
-    ? Math.round(fullDurations.reduce((a, b) => a + b, 0) / fullDurations.length)
-    : null;
+  const avgStageDuration = (key: string) => {
+    const d = stageDurations[key];
+    return d && d.length > 0 ? Math.round(d.reduce((a, b) => a + b, 0) / d.length) : null;
+  };
+
+  // Total pipeline duration = sum of stage averages (consistent with display)
+  const stageAvgs = ['Data Load', 'Analyze', 'Review'].map(avgStageDuration).filter((v): v is number => v != null);
+  const avgDurationMs = stageAvgs.length > 0 ? stageAvgs.reduce((a, b) => a + b, 0) : null;
+
+  // Conversion transitions between stages
+  const transitions: { from: string; to: string; avgMs: number; medianMs: number; count: number }[] = [];
 
   return Response.json({
     pipelines: [{
       id: 'bom_verification',
       name: 'BOM Verification',
       stages: [
-        { name: 'Data Load', count: dataLoad, description: 'User loads and parses files' },
-        { name: 'Analyze', count: analyze, description: 'System performs analysis' },
-        { name: 'Review', count: review, description: 'User reviews results' },
+        { name: 'Data Load', count: dataLoad, description: 'User completes setup and file loads', avgDurationMs: avgStageDuration('Data Load') },
+        { name: 'Analyze', count: analyze, description: 'System performs analysis', avgDurationMs: avgStageDuration('Analyze') },
+        { name: 'Review', count: review, description: 'User reviews results', avgDurationMs: avgStageDuration('Review') },
         { name: 'Export', count: exported, description: 'User exports report' },
       ],
       rejectedStage: failed > 0 ? { name: 'Failed', count: failed, fromStage: 'Analyze' } : undefined,
