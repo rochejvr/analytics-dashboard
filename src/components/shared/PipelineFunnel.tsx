@@ -105,103 +105,105 @@ export function PipelineFunnel({ pipeline }: PipelineFunnelProps) {
         </span>
       </div>
 
-      <div className="px-4 py-4">
-        <div className="flex items-start gap-4">
+      <div className="px-4 py-3">
+        <div className="flex gap-4">
           {/* ── Funnel flow ── */}
-          <div className="flex-1 min-w-0">
-            <div className="flex items-end">
-              {stages.map((stage, i) => {
-                const nextStage = stages[i + 1];
-                const trans = nextStage ? transMap[`${stage.name}→${nextStage.name}`] : null;
-                const isLast = i === stages.length - 1;
-                const h = barHeight(stage.count);
+          <div className="flex-1 min-w-0 flex items-center">
+            {stages.map((stage, i) => {
+              const nextStage = stages[i + 1];
+              const trans = nextStage ? transMap[`${stage.name}→${nextStage.name}`] : null;
+              const isLast = i === stages.length - 1;
+              const h = barHeight(stage.count);
 
-                return (
-                  <div key={stage.name} className="contents">
-                    {/* Stage node */}
-                    <div className="flex flex-col items-center shrink-0" style={{ width: BAR_WIDTH + 16 }}>
-                      <span className="text-sm font-bold tabular-nums mb-1" style={{ color: 'var(--foreground)' }}>
+              return (
+                <div key={stage.name} className="contents">
+                  {/* Stage node */}
+                  <div className="flex items-center gap-1.5 shrink-0">
+                    <div
+                      className="rounded"
+                      style={{
+                        width: 8,
+                        height: h,
+                        background: isLast
+                          ? 'linear-gradient(180deg, #22c55e 0%, #16a34a 100%)'
+                          : 'var(--accent)',
+                        opacity: isLast ? 0.75 : 0.15 + (stage.count / maxCount) * 0.85,
+                      }}
+                    />
+                    <div className="flex flex-col">
+                      <span className="text-sm font-bold tabular-nums leading-none" style={{ color: 'var(--foreground)' }}>
                         {stage.count}
                       </span>
-                      <div
-                        className="rounded"
-                        style={{
-                          width: BAR_WIDTH,
-                          height: h,
-                          background: isLast
-                            ? 'linear-gradient(180deg, #22c55e 0%, #16a34a 100%)'
-                            : 'var(--accent)',
-                          opacity: isLast ? 0.75 : 0.15 + (stage.count / maxCount) * 0.85,
-                        }}
-                      />
-                      <span className="text-[10px] font-medium mt-1" style={{ color: 'var(--muted)' }}>
+                      <span className="text-[10px] font-medium" style={{ color: 'var(--muted)' }}>
                         {stage.name}
                       </span>
                     </div>
+                  </div>
 
-                    {/* Connector */}
-                    {!isLast && (
-                      <div className="flex-1 flex flex-col items-center justify-end pb-3 min-w-[40px]">
-                        {trans ? (
-                          <>
-                            <div
-                              className="px-1.5 py-px rounded-full text-[9px] font-semibold tabular-nums whitespace-nowrap"
-                              style={{
-                                background: `color-mix(in srgb, ${timingColor(trans.avgMs)} 10%, transparent)`,
-                                color: timingColor(trans.avgMs),
-                                border: `1px solid color-mix(in srgb, ${timingColor(trans.avgMs)} 20%, transparent)`,
-                              }}
-                            >
-                              {fmtDuration(trans.avgMs)}
-                            </div>
-                            <div className="w-full flex items-center mt-0.5 px-1">
-                              <div className="flex-1 h-px" style={{ background: `color-mix(in srgb, ${timingColor(trans.avgMs)} 35%, var(--card-border))` }} />
-                              <svg width="5" height="7" viewBox="0 0 5 7" className="shrink-0 -ml-px" style={{ color: timingColor(trans.avgMs), opacity: 0.6 }}>
-                                <path d="M1 1L3.5 3.5L1 6" stroke="currentColor" strokeWidth="1.2" fill="none" strokeLinecap="round" />
-                              </svg>
-                            </div>
-                            <span className="text-[8px] mt-px" style={{ color: 'var(--muted)', opacity: 0.5 }}>
-                              n={trans.count}
-                            </span>
-                          </>
-                        ) : (
-                          <div className="w-full flex items-center px-1">
-                            <div className="flex-1 h-px" style={{ background: 'var(--card-border)' }} />
-                            <svg width="5" height="7" viewBox="0 0 5 7" className="shrink-0 -ml-px" style={{ color: 'var(--muted)', opacity: 0.3 }}>
+                  {/* Connector */}
+                  {!isLast && (
+                    <div className="flex-1 flex flex-col items-center justify-center min-w-[40px] px-1">
+                      {trans ? (
+                        <>
+                          <div
+                            className="px-1.5 py-px rounded-full text-[9px] font-semibold tabular-nums whitespace-nowrap"
+                            style={{
+                              background: `color-mix(in srgb, ${timingColor(trans.avgMs)} 10%, transparent)`,
+                              color: timingColor(trans.avgMs),
+                              border: `1px solid color-mix(in srgb, ${timingColor(trans.avgMs)} 20%, transparent)`,
+                            }}
+                          >
+                            {fmtDuration(trans.avgMs)}
+                          </div>
+                          <div className="w-full flex items-center mt-0.5">
+                            <div className="flex-1 h-px" style={{ background: `color-mix(in srgb, ${timingColor(trans.avgMs)} 35%, var(--card-border))` }} />
+                            <svg width="5" height="7" viewBox="0 0 5 7" className="shrink-0 -ml-px" style={{ color: timingColor(trans.avgMs), opacity: 0.6 }}>
                               <path d="M1 1L3.5 3.5L1 6" stroke="currentColor" strokeWidth="1.2" fill="none" strokeLinecap="round" />
                             </svg>
                           </div>
-                        )}
-                      </div>
-                    )}
-                  </div>
-                );
-              })}
+                          <span className="text-[8px]" style={{ color: 'var(--muted)', opacity: 0.5 }}>
+                            n={trans.count}
+                          </span>
+                        </>
+                      ) : (
+                        <div className="w-full flex items-center">
+                          <div className="flex-1 h-px" style={{ background: 'var(--card-border)' }} />
+                          <svg width="5" height="7" viewBox="0 0 5 7" className="shrink-0 -ml-px" style={{ color: 'var(--muted)', opacity: 0.3 }}>
+                            <path d="M1 1L3.5 3.5L1 6" stroke="currentColor" strokeWidth="1.2" fill="none" strokeLinecap="round" />
+                          </svg>
+                        </div>
+                      )}
+                    </div>
+                  )}
+                </div>
+              );
+            })}
 
-              {/* Rejected */}
-              {rejectedStage && rejectedStage.count > 0 && (
+            {/* Rejected */}
+            {rejectedStage && rejectedStage.count > 0 && (
+              <div
+                className="flex items-center gap-1.5 shrink-0 ml-2 pl-2 border-l border-dashed"
+                style={{ borderColor: 'var(--card-border)' }}
+              >
                 <div
-                  className="flex flex-col items-center shrink-0 ml-1 pl-2 border-l border-dashed"
-                  style={{ borderColor: 'var(--card-border)', width: BAR_WIDTH + 16 }}
-                >
-                  <span className="text-sm font-bold tabular-nums mb-1" style={{ color: 'var(--error)' }}>
+                  className="rounded"
+                  style={{
+                    width: 8,
+                    height: barHeight(rejectedStage.count),
+                    background: 'linear-gradient(180deg, #ef4444 0%, #dc2626 100%)',
+                    opacity: 0.3,
+                  }}
+                />
+                <div className="flex flex-col">
+                  <span className="text-sm font-bold tabular-nums leading-none" style={{ color: 'var(--error)' }}>
                     {rejectedStage.count}
                   </span>
-                  <div
-                    className="rounded"
-                    style={{
-                      width: BAR_WIDTH,
-                      height: barHeight(rejectedStage.count),
-                      background: 'linear-gradient(180deg, #ef4444 0%, #dc2626 100%)',
-                      opacity: 0.3,
-                    }}
-                  />
-                  <span className="text-[10px] font-medium mt-1" style={{ color: 'var(--error)' }}>
+                  <span className="text-[10px] font-medium" style={{ color: 'var(--error)' }}>
                     {rejectedStage.name}
                   </span>
                 </div>
-              )}
-            </div>
+              </div>
+            )}
           </div>
 
           {/* ── KPI strip ── */}
