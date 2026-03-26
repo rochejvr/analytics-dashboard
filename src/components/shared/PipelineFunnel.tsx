@@ -1,6 +1,6 @@
 'use client';
 
-interface PipelineStage { name: string; count: number }
+interface PipelineStage { name: string; count: number; description?: string }
 interface Transition { from: string; to: string; avgMs: number; medianMs: number; count: number }
 interface RejectedStage { name: string; count: number; fromStage: string }
 interface ExtraMetric { label: string; value: number; color?: string }
@@ -69,9 +69,10 @@ export function PipelineFunnel({ pipeline }: PipelineFunnelProps) {
   const timingRow = hasTiming ? 28 : 0;
   const top = timingRow + 4;
   const cy = top + maxH / 2;
-  const labelY = top + maxH + 13;
+  const descY = top + maxH + 12;
+  const descH = stages.some(s => s.description) ? 12 : 0;
   const rejH = rejectedStage && rejectedStage.count > 0 ? 34 : 0;
-  const H = labelY + 6 + rejH;
+  const H = descY + descH + 4 + rejH;
   const sw = W / n, gap = 2;
 
   const ht = (i: number) => Math.max((i < n ? stages[i].count : stages[n - 1].count) / maxCount, 0.06) * maxH;
@@ -160,24 +161,32 @@ export function PipelineFunnel({ pipeline }: PipelineFunnelProps) {
                   d={`M${s.x1},${cy - s.hL / 2}L${s.x2},${cy - s.hR / 2}L${s.x2},${cy + s.hR / 2}L${s.x1},${cy + s.hL / 2}Z`}
                   fill={`url(#fghl${pipeline.id})`}
                 />
-                {/* Count */}
+                {/* Stage name inside block */}
+                <text x={s.cx} y={cy - 8} textAnchor="middle" dominantBaseline="central"
+                  fill="white" fontSize="8.5" fontWeight="600" opacity="0.85"
+                  letterSpacing="0.3">
+                  {s.stage.name}
+                </text>
+                {/* Count inside block */}
                 {s.stage.count > 0 ? (
-                  <text x={s.cx} y={cy + 1} textAnchor="middle" dominantBaseline="central"
-                    fill="white" fontSize="15" fontWeight="800"
-                    style={{ fontFamily: 'ui-monospace, monospace', textShadow: '0 1px 2px rgba(0,0,0,0.2)' }}>
+                  <text x={s.cx} y={cy + 7} textAnchor="middle" dominantBaseline="central"
+                    fill="white" fontSize="16" fontWeight="800"
+                    style={{ fontFamily: 'ui-monospace, monospace' }}>
                     {s.stage.count}
                   </text>
                 ) : (
-                  <text x={s.cx} y={cy + 1} textAnchor="middle" dominantBaseline="central"
-                    fill="white" fontSize="11" fontWeight="600" opacity="0.5">
+                  <text x={s.cx} y={cy + 7} textAnchor="middle" dominantBaseline="central"
+                    fill="white" fontSize="12" fontWeight="600" opacity="0.5">
                     0
                   </text>
                 )}
-                {/* Stage name */}
-                <text x={s.cx} y={labelY} textAnchor="middle"
-                  fill="var(--muted)" fontSize="10" fontWeight="500">
-                  {s.stage.name}
-                </text>
+                {/* Description below */}
+                {s.stage.description && (
+                  <text x={s.cx} y={descY} textAnchor="middle"
+                    fill="var(--muted)" fontSize="8" fontWeight="400" opacity="0.7">
+                    {s.stage.description}
+                  </text>
+                )}
               </g>
             ))}
 

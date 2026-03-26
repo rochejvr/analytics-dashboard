@@ -98,9 +98,9 @@ async function handleInvoicePipeline(hours: number, since: string) {
       id: 'invoice_intake',
       name: 'Invoice Intake',
       stages: [
-        { name: 'Received', count: received },
-        { name: 'Evaluated', count: evaluated },
-        { name: 'Accepted', count: accepted },
+        { name: 'Received', count: received, description: 'Email hits intake' },
+        { name: 'Evaluated', count: evaluated, description: 'LLM extracts and validates' },
+        { name: 'Accepted', count: accepted, description: 'Passes compliance checks' },
       ],
       rejectedStage: { name: 'Rejected', count: rejected, fromStage: 'Evaluated' },
       transitions: [
@@ -123,6 +123,11 @@ async function handleBomPipeline(hours: number, since: string) {
     'bom.uploaded', 'files.uploaded', 'analysis.started', 'analysis.completed',
     'analysis.failed', 'report.exported_pdf',
   ];
+  // Funnel stages:
+  // Data Load = files.uploaded (user has loaded all files — BOM + lots)
+  // Analyze   = analysis.completed (system finished analysis)
+  // Review    = implicit (time between completed and exported)
+  // Export    = report.exported_pdf
 
   const { data: events } = await supabase!
     .from('activity_events')
@@ -164,12 +169,11 @@ async function handleBomPipeline(hours: number, since: string) {
     stageMap[runId] = {};
     for (const e of runs[i].events) {
       const stage =
-        e.event_name === 'bom.uploaded' ? 'BOM Loaded' :
-        e.event_name === 'files.uploaded' ? 'Files Added' :
-        e.event_name === 'analysis.started' ? 'Analyzed' :
-        e.event_name === 'analysis.completed' ? 'Completed' :
+        (e.event_name === 'bom.uploaded' || e.event_name === 'files.uploaded') ? 'Data Load' :
+        e.event_name === 'analysis.started' ? '_started' :
+        e.event_name === 'analysis.completed' ? 'Analyze' :
         e.event_name === 'analysis.failed' ? 'Failed' :
-        e.event_name === 'report.exported_pdf' ? 'Exported' : null;
+        e.event_name === 'report.exported_pdf' ? 'Export' : null;
       if (stage && !stageMap[runId][stage]) {
         stageMap[runId][stage] = e.occurred_at;
       }
@@ -178,12 +182,12 @@ async function handleBomPipeline(hours: number, since: string) {
 
   // Count unique runs that reached each stage (prevents reruns inflating counts)
   const stageValues = Object.values(stageMap);
-  const bomLoaded = stageValues.filter(s => s['BOM Loaded']).length;
-  const filesAdded = stageValues.filter(s => s['Files Added']).length;
-  const analyzed = stageValues.filter(s => s['Analyzed']).length;
-  const completed = stageValues.filter(s => s['Completed']).length;
+  const dataLoad = stageValues.filter(s => s['Data Load']).length;
+  const analyze = stageValues.filter(s => s['Analyze']).length;
   const failed = stageValues.filter(s => s['Failed']).length;
-  const exported = stageValues.filter(s => s['Exported']).length;
+  const exported = stageValues.filter(s => s['Export']).length;
+  // Review = everyone who completed analysis (they see results before deciding to export)
+  const review = analyze;
 
   // Pass/fail: check the last analysis.completed event per run
   let passed = 0;
@@ -195,23 +199,21 @@ async function handleBomPipeline(hours: number, since: string) {
       if (meta.overall_pass === true) passed++;
     }
   }
-  const failedAnalysis = completed - passed;
+  const failedAnalysis = analyze - passed;
 
-  const passRate = completed > 0 ? Math.round((passed / completed) * 100) : 0;
+  const passRate = analyze > 0 ? Math.round((passed / analyze) * 100) : 0;
 
   // Transitions
   const transitions = computeTransitions(stageMap, [
-    ['BOM Loaded', 'Files Added'],
-    ['Files Added', 'Analyzed'],
-    ['Analyzed', 'Completed'],
-    ['Completed', 'Exported'],
+    ['Data Load', 'Analyze'],
+    ['Analyze', 'Export'],
   ]);
 
-  // Full pipeline duration (BOM loaded → export or → completed)
+  // Full pipeline duration (data load → export or → analyze)
   const fullDurations: number[] = [];
   for (const stages of Object.values(stageMap)) {
-    const start = stages['BOM Loaded'] || stages['Files Added'] || stages['Analyzed'];
-    const end = stages['Exported'] || stages['Completed'];
+    const start = stages['Data Load'] || stages['Analyze'];
+    const end = stages['Export'] || stages['Analyze'];
     if (start && end) {
       const ms = new Date(end).getTime() - new Date(start).getTime();
       if (ms > 0) fullDurations.push(ms);
@@ -226,13 +228,12 @@ async function handleBomPipeline(hours: number, since: string) {
       id: 'bom_verification',
       name: 'BOM Verification',
       stages: [
-        { name: 'BOM Loaded', count: bomLoaded },
-        { name: 'Files Added', count: filesAdded },
-        { name: 'Analyzed', count: analyzed },
-        { name: 'Completed', count: completed },
-        { name: 'Exported', count: exported },
+        { name: 'Data Load', count: dataLoad, description: 'User loads and parses files' },
+        { name: 'Analyze', count: analyze, description: 'System performs analysis' },
+        { name: 'Review', count: review, description: 'User reviews results' },
+        { name: 'Export', count: exported, description: 'User exports report' },
       ],
-      rejectedStage: failed > 0 ? { name: 'Failed', count: failed, fromStage: 'Analyzed' } : undefined,
+      rejectedStage: failed > 0 ? { name: 'Failed', count: failed, fromStage: 'Analyze' } : undefined,
       transitions,
       passRate,
       passLabel: 'Pass Rate',
