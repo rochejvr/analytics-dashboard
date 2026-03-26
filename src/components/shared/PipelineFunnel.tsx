@@ -65,21 +65,28 @@ function fmtDuration(ms: number): string {
 }
 
 function timingColor(ms: number): string {
-  if (ms < 5000) return '#22c55e';   // fast — green
-  if (ms < 30000) return '#2563eb';  // normal — blue
-  if (ms < 120000) return '#f59e0b'; // slow — amber
-  return '#ef4444';                   // bottleneck — red
+  if (ms < 5000) return '#22c55e';
+  if (ms < 30000) return '#2563eb';
+  if (ms < 120000) return '#f59e0b';
+  return '#ef4444';
 }
+
+const BAR_MAX_H = 64;
+const BAR_MIN_H = 6;
+const BAR_WIDTH = 48;
 
 export function PipelineFunnel({ pipeline }: PipelineFunnelProps) {
   const { stages, rejectedStage, transitions, passRate, passLabel, avgDurationMs, extraMetrics, byType } = pipeline;
-  const maxCount = Math.max(...stages.map(s => s.count), rejectedStage?.count || 0, 1);
+  const allCounts = [...stages.map(s => s.count), rejectedStage?.count || 0];
+  const maxCount = Math.max(...allCounts, 1);
   const types = Object.entries(byType).sort((a, b) => b[1].total - a[1].total);
 
-  // Build transition lookup
   const transMap: Record<string, Transition> = {};
-  for (const t of transitions) {
-    transMap[`${t.from}→${t.to}`] = t;
+  for (const t of transitions) transMap[`${t.from}→${t.to}`] = t;
+
+  function barHeight(count: number): number {
+    if (count === 0) return BAR_MIN_H;
+    return BAR_MIN_H + (count / maxCount) * (BAR_MAX_H - BAR_MIN_H);
   }
 
   return (
@@ -88,115 +95,108 @@ export function PipelineFunnel({ pipeline }: PipelineFunnelProps) {
       style={{ background: 'var(--card)', borderColor: 'var(--card-border)' }}
     >
       {/* Header */}
-      <div className="px-5 py-3 flex items-center justify-between border-b" style={{ borderColor: 'var(--card-border)' }}>
+      <div className="px-4 py-2.5 flex items-center justify-between border-b" style={{ borderColor: 'var(--card-border)' }}>
         <div className="flex items-center gap-2">
           <div className="w-1.5 h-4 rounded-full" style={{ background: 'var(--accent)' }} />
           <span className="text-sm font-semibold" style={{ color: 'var(--foreground)' }}>{pipeline.name}</span>
         </div>
-        <span className="text-[11px] font-medium px-2 py-0.5 rounded" style={{ color: 'var(--muted)', background: 'var(--background)' }}>
+        <span className="text-[10px] font-medium px-1.5 py-0.5 rounded" style={{ color: 'var(--muted)', background: 'var(--background)' }}>
           Pipeline
         </span>
       </div>
 
-      <div className="p-5">
-        <div className="flex flex-col lg:flex-row gap-5">
+      <div className="px-4 py-4">
+        <div className="flex items-start gap-4">
           {/* ── Funnel flow ── */}
           <div className="flex-1 min-w-0">
-            <div className="flex items-stretch gap-0">
+            <div className="flex items-end">
               {stages.map((stage, i) => {
-                const ratio = stage.count / maxCount;
                 const nextStage = stages[i + 1];
                 const trans = nextStage ? transMap[`${stage.name}→${nextStage.name}`] : null;
                 const isLast = i === stages.length - 1;
-                const isFirst = i === 0;
+                const h = barHeight(stage.count);
 
                 return (
-                  <div key={stage.name} className="flex items-stretch" style={{ flex: trans ? '1 1 0' : '0 0 auto' }}>
+                  <div key={stage.name} className="contents">
                     {/* Stage node */}
-                    <div className="flex flex-col items-center" style={{ minWidth: 72 }}>
-                      {/* Count */}
-                      <span className="text-lg font-bold tabular-nums mb-1" style={{ color: 'var(--foreground)' }}>
+                    <div className="flex flex-col items-center shrink-0" style={{ width: BAR_WIDTH + 16 }}>
+                      <span className="text-sm font-bold tabular-nums mb-1" style={{ color: 'var(--foreground)' }}>
                         {stage.count}
                       </span>
-                      {/* Bar */}
-                      <div className="w-full flex justify-center" style={{ height: 48 }}>
-                        <div
-                          className="rounded-md"
-                          style={{
-                            width: `${Math.max(ratio * 100, 20)}%`,
-                            minWidth: 20,
-                            height: '100%',
-                            background: isLast
-                              ? 'linear-gradient(180deg, #22c55e 0%, #16a34a 100%)'
-                              : isFirst
-                                ? 'var(--accent)'
-                                : `color-mix(in srgb, var(--accent) ${50 + ratio * 50}%, var(--card-border))`,
-                            opacity: isLast ? 0.8 : 0.2 + ratio * 0.8,
-                          }}
-                        />
-                      </div>
-                      {/* Label */}
-                      <span className="text-[11px] font-medium mt-1.5" style={{ color: 'var(--muted)' }}>
+                      <div
+                        className="rounded"
+                        style={{
+                          width: BAR_WIDTH,
+                          height: h,
+                          background: isLast
+                            ? 'linear-gradient(180deg, #22c55e 0%, #16a34a 100%)'
+                            : 'var(--accent)',
+                          opacity: isLast ? 0.75 : 0.15 + (stage.count / maxCount) * 0.85,
+                        }}
+                      />
+                      <span className="text-[10px] font-medium mt-1" style={{ color: 'var(--muted)' }}>
                         {stage.name}
                       </span>
                     </div>
 
-                    {/* Connector with timing */}
-                    {trans && (
-                      <div className="flex-1 flex flex-col items-center justify-center px-1" style={{ minWidth: 60 }}>
-                        {/* Timing pill */}
-                        <div
-                          className="px-2 py-0.5 rounded-full text-[10px] font-semibold tabular-nums whitespace-nowrap mb-1"
-                          style={{
-                            background: `color-mix(in srgb, ${timingColor(trans.avgMs)} 12%, transparent)`,
-                            color: timingColor(trans.avgMs),
-                            border: `1px solid color-mix(in srgb, ${timingColor(trans.avgMs)} 25%, transparent)`,
-                          }}
-                        >
-                          {fmtDuration(trans.avgMs)}
-                        </div>
-                        {/* Arrow line */}
-                        <div className="w-full flex items-center" style={{ height: 12 }}>
-                          <div
-                            className="flex-1 h-px"
-                            style={{ background: `color-mix(in srgb, ${timingColor(trans.avgMs)} 40%, var(--card-border))` }}
-                          />
-                          <svg width="6" height="8" viewBox="0 0 6 8" className="shrink-0" style={{ color: timingColor(trans.avgMs) }}>
-                            <path d="M1 1L4.5 4L1 7" stroke="currentColor" strokeWidth="1.5" fill="none" strokeLinecap="round" />
-                          </svg>
-                        </div>
-                        {/* Sample count */}
-                        <span className="text-[9px] mt-0.5" style={{ color: 'var(--muted)', opacity: 0.6 }}>
-                          n={trans.count}
-                        </span>
+                    {/* Connector */}
+                    {!isLast && (
+                      <div className="flex-1 flex flex-col items-center justify-end pb-3 min-w-[40px]">
+                        {trans ? (
+                          <>
+                            <div
+                              className="px-1.5 py-px rounded-full text-[9px] font-semibold tabular-nums whitespace-nowrap"
+                              style={{
+                                background: `color-mix(in srgb, ${timingColor(trans.avgMs)} 10%, transparent)`,
+                                color: timingColor(trans.avgMs),
+                                border: `1px solid color-mix(in srgb, ${timingColor(trans.avgMs)} 20%, transparent)`,
+                              }}
+                            >
+                              {fmtDuration(trans.avgMs)}
+                            </div>
+                            <div className="w-full flex items-center mt-0.5 px-1">
+                              <div className="flex-1 h-px" style={{ background: `color-mix(in srgb, ${timingColor(trans.avgMs)} 35%, var(--card-border))` }} />
+                              <svg width="5" height="7" viewBox="0 0 5 7" className="shrink-0 -ml-px" style={{ color: timingColor(trans.avgMs), opacity: 0.6 }}>
+                                <path d="M1 1L3.5 3.5L1 6" stroke="currentColor" strokeWidth="1.2" fill="none" strokeLinecap="round" />
+                              </svg>
+                            </div>
+                            <span className="text-[8px] mt-px" style={{ color: 'var(--muted)', opacity: 0.5 }}>
+                              n={trans.count}
+                            </span>
+                          </>
+                        ) : (
+                          <div className="w-full flex items-center px-1">
+                            <div className="flex-1 h-px" style={{ background: 'var(--card-border)' }} />
+                            <svg width="5" height="7" viewBox="0 0 5 7" className="shrink-0 -ml-px" style={{ color: 'var(--muted)', opacity: 0.3 }}>
+                              <path d="M1 1L3.5 3.5L1 6" stroke="currentColor" strokeWidth="1.2" fill="none" strokeLinecap="round" />
+                            </svg>
+                          </div>
+                        )}
                       </div>
                     )}
-
-                    {/* Last stage has no connector but may need spacing */}
-                    {!trans && !isLast && <div style={{ width: 16 }} />}
                   </div>
                 );
               })}
 
-              {/* Rejected column */}
+              {/* Rejected */}
               {rejectedStage && rejectedStage.count > 0 && (
-                <div className="flex flex-col items-center ml-2 pl-2 border-l border-dashed" style={{ borderColor: 'var(--card-border)', minWidth: 56 }}>
-                  <span className="text-lg font-bold tabular-nums mb-1" style={{ color: 'var(--error)' }}>
+                <div
+                  className="flex flex-col items-center shrink-0 ml-1 pl-2 border-l border-dashed"
+                  style={{ borderColor: 'var(--card-border)', width: BAR_WIDTH + 16 }}
+                >
+                  <span className="text-sm font-bold tabular-nums mb-1" style={{ color: 'var(--error)' }}>
                     {rejectedStage.count}
                   </span>
-                  <div className="w-full flex justify-center" style={{ height: 48 }}>
-                    <div
-                      className="rounded-md"
-                      style={{
-                        width: `${Math.max((rejectedStage.count / maxCount) * 100, 20)}%`,
-                        minWidth: 20,
-                        height: '100%',
-                        background: 'linear-gradient(180deg, #ef4444 0%, #dc2626 100%)',
-                        opacity: 0.35,
-                      }}
-                    />
-                  </div>
-                  <span className="text-[11px] font-medium mt-1.5" style={{ color: 'var(--error)' }}>
+                  <div
+                    className="rounded"
+                    style={{
+                      width: BAR_WIDTH,
+                      height: barHeight(rejectedStage.count),
+                      background: 'linear-gradient(180deg, #ef4444 0%, #dc2626 100%)',
+                      opacity: 0.3,
+                    }}
+                  />
+                  <span className="text-[10px] font-medium mt-1" style={{ color: 'var(--error)' }}>
                     {rejectedStage.name}
                   </span>
                 </div>
@@ -205,10 +205,13 @@ export function PipelineFunnel({ pipeline }: PipelineFunnelProps) {
           </div>
 
           {/* ── KPI strip ── */}
-          <div className="flex lg:flex-col gap-4 lg:gap-3 lg:w-44 lg:border-l lg:pl-5 flex-wrap" style={{ borderColor: 'var(--card-border)' }}>
+          <div
+            className="flex flex-col gap-2.5 shrink-0 border-l pl-4"
+            style={{ borderColor: 'var(--card-border)', width: 150 }}
+          >
             {/* Pass rate ring */}
-            <div className="flex items-center gap-3">
-              <div className="relative shrink-0" style={{ width: 48, height: 48 }}>
+            <div className="flex items-center gap-2.5">
+              <div className="relative shrink-0" style={{ width: 40, height: 40 }}>
                 <svg viewBox="0 0 36 36" className="w-full h-full -rotate-90">
                   <circle cx="18" cy="18" r="14.5" fill="none" stroke="var(--card-border)" strokeWidth="3" />
                   <circle
@@ -220,46 +223,40 @@ export function PipelineFunnel({ pipeline }: PipelineFunnelProps) {
                   />
                 </svg>
                 <span
-                  className="absolute inset-0 flex items-center justify-center text-[11px] font-bold tabular-nums"
+                  className="absolute inset-0 flex items-center justify-center text-[10px] font-bold tabular-nums"
                   style={{ color: passRate >= 80 ? '#16a34a' : passRate >= 50 ? '#d97706' : '#dc2626' }}
                 >
                   {passRate}%
                 </span>
               </div>
-              <div className="text-[11px] font-medium leading-tight" style={{ color: 'var(--muted)' }}>
-                {passLabel}
-              </div>
+              <span className="text-[11px] font-medium" style={{ color: 'var(--muted)' }}>{passLabel}</span>
             </div>
 
             {/* Avg duration */}
-            <div className="flex items-center gap-3">
+            <div className="flex items-center gap-2.5">
               <div
-                className="w-12 h-12 rounded-xl flex items-center justify-center shrink-0"
+                className="w-10 h-10 rounded-lg flex items-center justify-center shrink-0"
                 style={{ background: 'var(--background)' }}
               >
-                <span className="text-[13px] font-bold tabular-nums" style={{ color: 'var(--foreground)' }}>
+                <span className="text-[11px] font-bold tabular-nums" style={{ color: 'var(--foreground)' }}>
                   {avgDurationMs ? fmtDuration(avgDurationMs) : '—'}
                 </span>
               </div>
-              <div className="text-[11px] font-medium leading-tight" style={{ color: 'var(--muted)' }}>
-                Avg Total<br />Duration
-              </div>
+              <span className="text-[11px] font-medium" style={{ color: 'var(--muted)' }}>Avg Duration</span>
             </div>
 
             {/* Extra metrics */}
             {extraMetrics?.map(m => (
-              <div key={m.label} className="flex items-center gap-3">
+              <div key={m.label} className="flex items-center gap-2.5">
                 <div
-                  className="w-12 h-12 rounded-xl flex items-center justify-center shrink-0"
+                  className="w-10 h-10 rounded-lg flex items-center justify-center shrink-0"
                   style={{ background: 'var(--background)' }}
                 >
-                  <span className="text-[13px] font-bold tabular-nums" style={{ color: m.color || 'var(--muted)' }}>
+                  <span className="text-[11px] font-bold tabular-nums" style={{ color: m.color || 'var(--muted)' }}>
                     {m.value}
                   </span>
                 </div>
-                <div className="text-[11px] font-medium leading-tight" style={{ color: 'var(--muted)' }}>
-                  {m.label}
-                </div>
+                <span className="text-[11px] font-medium" style={{ color: 'var(--muted)' }}>{m.label}</span>
               </div>
             ))}
           </div>
@@ -267,23 +264,23 @@ export function PipelineFunnel({ pipeline }: PipelineFunnelProps) {
 
         {/* Type breakdown */}
         {types.length > 1 && (
-          <div className="mt-5 pt-4 border-t" style={{ borderColor: 'var(--card-border)' }}>
-            <div className="flex flex-wrap gap-x-6 gap-y-2">
+          <div className="mt-3 pt-3 border-t" style={{ borderColor: 'var(--card-border)' }}>
+            <div className="flex flex-wrap gap-x-5 gap-y-1.5">
               {types.map(([type, stats]) => {
                 const decided = stats.accepted + stats.rejected;
                 return (
-                  <div key={type} className="flex items-center gap-2.5 min-w-[160px]">
-                    <span className="w-2 h-2 rounded-full shrink-0" style={{ background: TYPE_COLORS[type] || TYPE_COLORS.unknown }} />
-                    <span className="text-xs font-medium" style={{ color: 'var(--foreground)' }}>
+                  <div key={type} className="flex items-center gap-2 min-w-[140px]">
+                    <span className="w-1.5 h-1.5 rounded-full shrink-0" style={{ background: TYPE_COLORS[type] || TYPE_COLORS.unknown }} />
+                    <span className="text-[11px] font-medium" style={{ color: 'var(--foreground)' }}>
                       {TYPE_LABELS[type] || type}
                     </span>
-                    <span className="text-[11px] tabular-nums" style={{ color: 'var(--muted)' }}>
+                    <span className="text-[10px] tabular-nums" style={{ color: 'var(--muted)' }}>
                       {stats.acceptanceRate}% · {decided}
                     </span>
-                    <div className="flex-1 h-1.5 rounded-full overflow-hidden" style={{ background: 'var(--card-border)', minWidth: 40 }}>
+                    <div className="flex-1 h-1 rounded-full overflow-hidden" style={{ background: 'var(--card-border)', minWidth: 30 }}>
                       <div
                         className="h-full rounded-full"
-                        style={{ width: `${stats.acceptanceRate}%`, background: TYPE_COLORS[type] || TYPE_COLORS.unknown, opacity: 0.7 }}
+                        style={{ width: `${stats.acceptanceRate}%`, background: TYPE_COLORS[type] || TYPE_COLORS.unknown, opacity: 0.6 }}
                       />
                     </div>
                   </div>

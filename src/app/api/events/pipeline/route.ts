@@ -175,19 +175,24 @@ async function handleBomPipeline(hours: number, since: string) {
     }
   }
 
-  // Stage counts
-  const uploaded = events.filter(e => e.event_name === 'bom.uploaded').length;
-  const started = events.filter(e => e.event_name === 'analysis.started').length;
-  const completedEvents = events.filter(e => e.event_name === 'analysis.completed');
-  const completed = completedEvents.length;
-  const failed = events.filter(e => e.event_name === 'analysis.failed').length;
-  const exported = events.filter(e => e.event_name === 'report.exported_pdf').length;
+  // Count unique runs that reached each stage (prevents reruns inflating counts)
+  const stageValues = Object.values(stageMap);
+  const uploaded = stageValues.filter(s => s['Uploaded']).length;
+  const started = stageValues.filter(s => s['Started']).length;
+  const completed = stageValues.filter(s => s['Completed']).length;
+  const failed = stageValues.filter(s => s['Failed']).length;
+  const exported = stageValues.filter(s => s['Exported']).length;
 
-  // Pass/fail from analysis.completed metadata
-  const passed = completedEvents.filter(e => {
-    const meta = (e.metadata || {}) as Record<string, unknown>;
-    return meta.overall_pass === true;
-  }).length;
+  // Pass/fail: check the last analysis.completed event per run
+  let passed = 0;
+  for (const run of runs) {
+    const completedEvts = run.events.filter(e => e.event_name === 'analysis.completed');
+    if (completedEvts.length > 0) {
+      const last = completedEvts[completedEvts.length - 1];
+      const meta = (last.metadata || {}) as Record<string, unknown>;
+      if (meta.overall_pass === true) passed++;
+    }
+  }
   const failedAnalysis = completed - passed;
 
   const passRate = completed > 0 ? Math.round((passed / completed) * 100) : 0;
