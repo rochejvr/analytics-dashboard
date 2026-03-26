@@ -5,6 +5,8 @@ import { PageHeader } from '@/components/layout/PageHeader';
 import { PipelineFunnel } from '@/components/shared/PipelineFunnel';
 import { DATE_RANGES } from '@/lib/constants';
 
+const PIPELINE_APPS = ['invoice_eval', 'bom_analysis'];
+
 export default function PipelinePage() {
   const [dateRange, setDateRange] = useState('7d');
   /* eslint-disable @typescript-eslint/no-explicit-any */
@@ -16,9 +18,12 @@ export default function PipelinePage() {
   const fetchData = useCallback(async () => {
     setLoading(true);
     try {
-      const res = await fetch(`/api/events/pipeline?hours=${hours}&app=invoice_eval`);
-      const data = await res.json();
-      setPipelines(data.pipelines || []);
+      const results = await Promise.all(
+        PIPELINE_APPS.map(app =>
+          fetch(`/api/events/pipeline?hours=${hours}&app=${app}`).then(r => r.json())
+        )
+      );
+      setPipelines(results.flatMap(r => r.pipelines || []));
     } catch (err) {
       console.error('Failed to fetch pipeline data:', err);
     }
@@ -44,7 +49,7 @@ export default function PipelinePage() {
             <div className="text-center py-12 text-sm" style={{ color: 'var(--muted)' }}>Loading...</div>
           ) : pipelines.length === 0 ? (
             <div className="text-center py-12 text-sm" style={{ color: 'var(--muted)' }}>
-              No pipeline data found. Process some invoices via email to see funnels here.
+              No pipeline data found for this period.
             </div>
           ) : (
             pipelines.map((p: any) => <PipelineFunnel key={p.id} pipeline={p} />)

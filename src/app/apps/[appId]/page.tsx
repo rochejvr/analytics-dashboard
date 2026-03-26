@@ -9,7 +9,7 @@ import { APP_REGISTRY, DATE_RANGES, type AppId } from '@/lib/constants';
 import type { ActivityEvent } from '@/types';
 
 // Apps that have pipeline funnels
-const PIPELINE_APPS = ['invoice_eval'];
+const PIPELINE_APPS = ['invoice_eval', 'bom_analysis'];
 
 export default function AppDetailPage({ params }: { params: Promise<{ appId: string }> }) {
   const { appId } = use(params);
