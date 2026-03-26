@@ -74,6 +74,7 @@ async function handleInvoicePipeline(hours: number, since: string) {
 
   const receivedDurations: number[] = [];
   const evalDurations: number[] = [];
+  const acceptedDurations: number[] = [];
   const totalDurations: number[] = [];
 
   for (const stages of Object.values(stageMap)) {
@@ -96,16 +97,19 @@ async function handleInvoicePipeline(hours: number, since: string) {
     if (llm && llm.duration_ms) {
       const llmEndAt = new Date(llm.occurred_at).getTime();
       const llmMs = llm.duration_ms;
-      const preLlmMs = (llmEndAt - llmMs) - receivedAt; // email.received → LLM call start
+      const preLlmMs = (llmEndAt - llmMs) - receivedAt;
+      const postLlmMs = terminalAt - llmEndAt;
 
       if (preLlmMs >= 0) receivedDurations.push(preLlmMs);
       evalDurations.push(llmMs);
+      if (postLlmMs >= 0) acceptedDurations.push(postLlmMs);
     }
   }
 
   const avg = (arr: number[]) => arr.length > 0 ? Math.round(arr.reduce((a, b) => a + b, 0) / arr.length) : null;
   const avgReceivedMs = avg(receivedDurations);
   const avgEvalMs = avg(evalDurations);
+  const avgAcceptedMs = avg(acceptedDurations);
   const avgDurationMs = avg(totalDurations);
 
   // Conversion transitions (no timing pills — timing is in stage blocks)
@@ -124,7 +128,7 @@ async function handleInvoicePipeline(hours: number, since: string) {
       stages: [
         { name: 'Received', count: received, description: 'Intake and classification', avgDurationMs: avgReceivedMs },
         { name: 'Evaluated', count: evaluated, description: 'LLM extracts and validates', avgDurationMs: avgEvalMs },
-        { name: 'Accepted', count: accepted, description: 'Passes compliance checks' },
+        { name: 'Accepted', count: accepted, description: 'Compliance, save and reply', avgDurationMs: avgAcceptedMs },
       ],
       rejectedStage: { name: 'Rejected', count: rejected, fromStage: 'Evaluated' },
       transitions,

@@ -186,24 +186,17 @@ export function PipelineFunnel({ pipeline }: PipelineFunnelProps) {
             )}
           </div>
 
-          {/* Descriptions row — use grid to perfectly align with funnel blocks */}
+          {/* Descriptions row — mirrors funnel flex structure exactly */}
           {stages.some(s => s.description) && (
-            <div className="mt-2.5" style={{
-              display: 'grid',
-              gridTemplateColumns: stages.map((_, i) => {
-                const cols = ['1fr'];
-                if (i < n - 1) cols.push('40px');
-                return cols.join(' ');
-              }).join(' '),
-            }}>
+            <div className="flex mt-2.5">
               {stages.map((stage, i) => (
                 <div key={i} className="contents">
-                  <div className="text-center px-1">
-                    <span className="text-[10px] leading-tight" style={{ color: 'var(--muted)' }}>
+                  <div className="flex-1 min-w-0 text-center px-1">
+                    <span className="text-[10px] leading-tight block" style={{ color: 'var(--muted)' }}>
                       {stage.description}
                     </span>
                   </div>
-                  {i < n - 1 && <div />}
+                  {i < n - 1 && <div className="shrink-0" style={{ width: 40 }} />}
                 </div>
               ))}
             </div>
