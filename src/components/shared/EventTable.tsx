@@ -1,8 +1,15 @@
 'use client';
 
 import type { ActivityEvent } from '@/types';
-import { formatDistanceToNow } from 'date-fns';
+import { format, isToday } from 'date-fns';
 import { APP_REGISTRY, type AppId } from '@/lib/constants';
+
+function formatEventTime(dateStr: string): string {
+  const d = new Date(dateStr);
+  const time = format(d, 'HH:mm:ss');
+  if (isToday(d)) return `Today ${time}`;
+  return format(d, 'MMM dd') + ' ' + time;
+}
 
 interface EventTableProps {
   events: ActivityEvent[];
@@ -46,7 +53,7 @@ export function EventTable({ events, showApp = true }: EventTableProps) {
             return (
               <tr key={event.id} className="border-b hover:bg-gray-50/50" style={{ borderColor: 'var(--card-border)' }}>
                 <td className="px-4 py-2.5 font-mono text-xs" style={{ color: 'var(--muted)' }}>
-                  {formatDistanceToNow(new Date(event.occurred_at), { addSuffix: true })}
+                  {formatEventTime(event.occurred_at)}
                 </td>
                 {showApp && (
                   <td className="px-4 py-2.5">
