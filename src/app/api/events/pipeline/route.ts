@@ -120,7 +120,7 @@ async function handleInvoicePipeline(hours: number, since: string) {
 // ── BOM Analysis Pipeline ──────────────────────────────────────────────
 async function handleBomPipeline(hours: number, since: string) {
   const eventNames = [
-    'bom.uploaded', 'analysis.started', 'analysis.completed',
+    'files.uploaded', 'analysis.started', 'analysis.completed',
     'analysis.failed', 'report.exported_pdf',
   ];
 
@@ -164,8 +164,8 @@ async function handleBomPipeline(hours: number, since: string) {
     stageMap[runId] = {};
     for (const e of runs[i].events) {
       const stage =
-        e.event_name === 'bom.uploaded' ? 'Uploaded' :
-        e.event_name === 'analysis.started' ? 'Started' :
+        e.event_name === 'files.uploaded' ? 'Uploaded' :
+        e.event_name === 'analysis.started' ? 'Analyzed' :
         e.event_name === 'analysis.completed' ? 'Completed' :
         e.event_name === 'analysis.failed' ? 'Failed' :
         e.event_name === 'report.exported_pdf' ? 'Exported' : null;
@@ -178,7 +178,7 @@ async function handleBomPipeline(hours: number, since: string) {
   // Count unique runs that reached each stage (prevents reruns inflating counts)
   const stageValues = Object.values(stageMap);
   const uploaded = stageValues.filter(s => s['Uploaded']).length;
-  const started = stageValues.filter(s => s['Started']).length;
+  const analyzed = stageValues.filter(s => s['Analyzed']).length;
   const completed = stageValues.filter(s => s['Completed']).length;
   const failed = stageValues.filter(s => s['Failed']).length;
   const exported = stageValues.filter(s => s['Exported']).length;
@@ -199,15 +199,15 @@ async function handleBomPipeline(hours: number, since: string) {
 
   // Transitions
   const transitions = computeTransitions(stageMap, [
-    ['Uploaded', 'Started'],
-    ['Started', 'Completed'],
+    ['Uploaded', 'Analyzed'],
+    ['Analyzed', 'Completed'],
     ['Completed', 'Exported'],
   ]);
 
   // Full pipeline duration (upload → export or upload → completed)
   const fullDurations: number[] = [];
   for (const stages of Object.values(stageMap)) {
-    const start = stages['Uploaded'] || stages['Started'];
+    const start = stages['Uploaded'] || stages['Analyzed'];
     const end = stages['Exported'] || stages['Completed'];
     if (start && end) {
       const ms = new Date(end).getTime() - new Date(start).getTime();
@@ -224,11 +224,11 @@ async function handleBomPipeline(hours: number, since: string) {
       name: 'BOM Verification',
       stages: [
         { name: 'Uploaded', count: uploaded },
-        { name: 'Started', count: started },
+        { name: 'Analyzed', count: analyzed },
         { name: 'Completed', count: completed },
         { name: 'Exported', count: exported },
       ],
-      rejectedStage: failed > 0 ? { name: 'Failed', count: failed, fromStage: 'Started' } : undefined,
+      rejectedStage: failed > 0 ? { name: 'Failed', count: failed, fromStage: 'Analyzed' } : undefined,
       transitions,
       passRate,
       passLabel: 'Pass Rate',
