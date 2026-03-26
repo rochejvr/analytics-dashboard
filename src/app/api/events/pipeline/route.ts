@@ -22,6 +22,7 @@ async function handleInvoicePipeline(hours: number, since: string) {
   const eventNames = [
     'email.received', 'invoice.evaluated', 'invoice.accepted',
     'invoice.rejected', 'invoice.duplicate', 'claim.accepted',
+    'llm.evaluation', 'llm.evaluation.pdf',
   ];
 
   const { data: events } = await supabase!
@@ -65,33 +66,40 @@ async function handleInvoicePipeline(hours: number, since: string) {
   const decided = accepted + rejected;
   const acceptanceRate = decided > 0 ? Math.round((accepted / decided) * 100) : 0;
 
-  // Per-stage average durations
-  const stageDurations: Record<string, number[]> = {
-    'Received': [], 'Evaluated': [],
-  };
+  // Per-stage durations using hybrid approach:
+  // 1. Evaluate stage = duration_ms from llm.evaluation / llm.evaluation.pdf events
+  // 2. Total pipeline = email.received → invoice.accepted/rejected (both have emailId)
+  // 3. Received stage = total - evaluate (attachment processing, classification, etc.)
+
+  // Evaluate stage: avg duration_ms from LLM events
+  const llmEvents = events.filter(e =>
+    (e.event_name === 'llm.evaluation' || e.event_name === 'llm.evaluation.pdf') && e.duration_ms != null
+  );
+  const avgEvalMs = llmEvents.length > 0
+    ? Math.round(llmEvents.reduce((s, e) => s + (e.duration_ms || 0), 0) / llmEvents.length)
+    : null;
+
+  // Total pipeline: email.received → terminal event (both have emailId)
+  const totalDurations: number[] = [];
   for (const stages of Object.values(stageMap)) {
-    // Received → Evaluated (time waiting + LLM processing)
-    if (stages['Received'] && stages['Evaluated']) {
-      const ms = new Date(stages['Evaluated']).getTime() - new Date(stages['Received']).getTime();
-      if (ms >= 0 && ms < 3600000) stageDurations['Received'].push(ms);
-    }
-    // Evaluated → Accepted/Rejected (compliance check + save + email)
     const terminal = stages['Accepted'] || stages['Rejected'];
-    if (stages['Evaluated'] && terminal) {
-      const ms = new Date(terminal).getTime() - new Date(stages['Evaluated']).getTime();
-      if (ms >= 0 && ms < 3600000) stageDurations['Evaluated'].push(ms);
+    if (stages['Received'] && terminal) {
+      const ms = new Date(terminal).getTime() - new Date(stages['Received']).getTime();
+      if (ms > 0 && ms < 3600000) totalDurations.push(ms);
     }
   }
-  const avgStageDur = (key: string) => {
-    const d = stageDurations[key];
-    return d && d.length > 0 ? Math.round(d.reduce((a, b) => a + b, 0) / d.length) : null;
-  };
+  const avgTotalMs = totalDurations.length > 0
+    ? Math.round(totalDurations.reduce((a, b) => a + b, 0) / totalDurations.length)
+    : null;
 
-  // Total = sum of stage averages
-  const stageAvgs = ['Received', 'Evaluated'].map(avgStageDur).filter((v): v is number => v != null);
-  const avgDurationMs = stageAvgs.length > 0 ? stageAvgs.reduce((a, b) => a + b, 0) : null;
+  // Received stage = total - evaluate (pre-LLM processing: fetch attachments, classify, etc.)
+  const avgReceivedMs = avgTotalMs != null && avgEvalMs != null && avgTotalMs > avgEvalMs
+    ? avgTotalMs - avgEvalMs
+    : null;
 
-  // Conversion transitions (no timing — timing is in stage blocks now)
+  const avgDurationMs = avgTotalMs;
+
+  // Conversion transitions (no timing pills — timing is in stage blocks)
   const transitions: { from: string; to: string; avgMs: number; medianMs: number; count: number }[] = [];
 
   // By invoice type
@@ -105,8 +113,8 @@ async function handleInvoicePipeline(hours: number, since: string) {
       id: 'invoice_intake',
       name: 'Invoice Intake',
       stages: [
-        { name: 'Received', count: received, description: 'Email hits intake', avgDurationMs: avgStageDur('Received') },
-        { name: 'Evaluated', count: evaluated, description: 'LLM extracts and validates', avgDurationMs: avgStageDur('Evaluated') },
+        { name: 'Received', count: received, description: 'Intake and classification', avgDurationMs: avgReceivedMs },
+        { name: 'Evaluated', count: evaluated, description: 'LLM extracts and validates', avgDurationMs: avgEvalMs },
         { name: 'Accepted', count: accepted, description: 'Passes compliance checks' },
       ],
       rejectedStage: { name: 'Rejected', count: rejected, fromStage: 'Evaluated' },
