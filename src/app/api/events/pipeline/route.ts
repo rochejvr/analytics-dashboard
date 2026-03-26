@@ -66,38 +66,47 @@ async function handleInvoicePipeline(hours: number, since: string) {
   const decided = accepted + rejected;
   const acceptanceRate = decided > 0 ? Math.round((accepted / decided) * 100) : 0;
 
-  // Per-stage durations using hybrid approach:
-  // 1. Evaluate stage = duration_ms from llm.evaluation / llm.evaluation.pdf events
-  // 2. Total pipeline = email.received → invoice.accepted/rejected (both have emailId)
-  // 3. Received stage = total - evaluate (attachment processing, classification, etc.)
-
-  // Evaluate stage: avg duration_ms from LLM events
+  // Per-run stage durations: for each emailId run, decompose total time
+  // using the nearest LLM event's duration_ms to split pre-LLM vs LLM time
   const llmEvents = events.filter(e =>
     (e.event_name === 'llm.evaluation' || e.event_name === 'llm.evaluation.pdf') && e.duration_ms != null
   );
-  const avgEvalMs = llmEvents.length > 0
-    ? Math.round(llmEvents.reduce((s, e) => s + (e.duration_ms || 0), 0) / llmEvents.length)
-    : null;
 
-  // Total pipeline: email.received → terminal event (both have emailId)
+  const receivedDurations: number[] = [];
+  const evalDurations: number[] = [];
   const totalDurations: number[] = [];
+
   for (const stages of Object.values(stageMap)) {
     const terminal = stages['Accepted'] || stages['Rejected'];
-    if (stages['Received'] && terminal) {
-      const ms = new Date(terminal).getTime() - new Date(stages['Received']).getTime();
-      if (ms > 0 && ms < 3600000) totalDurations.push(ms);
+    if (!stages['Received'] || !terminal) continue;
+
+    const receivedAt = new Date(stages['Received']).getTime();
+    const terminalAt = new Date(terminal).getTime();
+    const totalMs = terminalAt - receivedAt;
+    if (totalMs <= 0 || totalMs > 3600000) continue;
+
+    totalDurations.push(totalMs);
+
+    // Find nearest LLM event within this run's time window
+    const llm = llmEvents.find(e => {
+      const t = new Date(e.occurred_at).getTime();
+      return t >= receivedAt && t <= terminalAt;
+    });
+
+    if (llm && llm.duration_ms) {
+      const llmEndAt = new Date(llm.occurred_at).getTime();
+      const llmMs = llm.duration_ms;
+      const preLlmMs = (llmEndAt - llmMs) - receivedAt; // email.received → LLM call start
+
+      if (preLlmMs >= 0) receivedDurations.push(preLlmMs);
+      evalDurations.push(llmMs);
     }
   }
-  const avgTotalMs = totalDurations.length > 0
-    ? Math.round(totalDurations.reduce((a, b) => a + b, 0) / totalDurations.length)
-    : null;
 
-  // Received stage = total - evaluate (pre-LLM processing: fetch attachments, classify, etc.)
-  const avgReceivedMs = avgTotalMs != null && avgEvalMs != null && avgTotalMs > avgEvalMs
-    ? avgTotalMs - avgEvalMs
-    : null;
-
-  const avgDurationMs = avgTotalMs;
+  const avg = (arr: number[]) => arr.length > 0 ? Math.round(arr.reduce((a, b) => a + b, 0) / arr.length) : null;
+  const avgReceivedMs = avg(receivedDurations);
+  const avgEvalMs = avg(evalDurations);
+  const avgDurationMs = avg(totalDurations);
 
   // Conversion transitions (no timing pills — timing is in stage blocks)
   const transitions: { from: string; to: string; avgMs: number; medianMs: number; count: number }[] = [];
