@@ -8,92 +8,124 @@ export async function GET(request: NextRequest) {
 
   const searchParams = request.nextUrl.searchParams;
   const hours = parseInt(searchParams.get('hours') || '168');
+  const appId = searchParams.get('app') || 'invoice_eval';
   const since = new Date(Date.now() - hours * 60 * 60 * 1000).toISOString();
 
-  // Fetch accepted, rejected, duplicate, and claim events
+  // Fetch all relevant pipeline events
   const { data: events } = await supabase
     .from('activity_events')
     .select('event_name, duration_ms, metadata, occurred_at')
-    .eq('app_id', 'invoice_eval')
-    .in('event_name', ['invoice.accepted', 'invoice.rejected', 'invoice.duplicate', 'claim.accepted'])
+    .eq('app_id', appId)
+    .in('event_name', [
+      'email.received', 'invoice.evaluated', 'invoice.accepted',
+      'invoice.rejected', 'invoice.duplicate', 'claim.accepted',
+    ])
     .gte('occurred_at', since)
-    .order('occurred_at', { ascending: false });
+    .order('occurred_at', { ascending: true });
 
   if (!events || events.length === 0) {
-    return NextResponse.json({
-      totals: { accepted: 0, rejected: 0, duplicate: 0, total: 0, acceptanceRate: 0 },
-      byType: {},
-      processingTimes: { overall: null, byType: {} },
-      recentEvents: [],
-      period: { hours, since },
-    });
+    return NextResponse.json({ pipelines: [], period: { hours, since } });
   }
 
-  // Categorize
-  const accepted = events.filter(e => e.event_name === 'invoice.accepted' || e.event_name === 'claim.accepted');
-  const rejected = events.filter(e => e.event_name === 'invoice.rejected');
-  const duplicate = events.filter(e => e.event_name === 'invoice.duplicate');
-  const total = accepted.length + rejected.length;
-  const acceptanceRate = total > 0 ? Math.round((accepted.length / total) * 100) : 0;
-
-  // By invoice type
-  type TypeStats = { accepted: number; rejected: number; total: number; acceptanceRate: number; avgDurationMs: number | null };
-  const byType: Record<string, TypeStats> = {};
-
+  // === Invoice Pipeline: email.received → invoice.accepted / invoice.rejected ===
+  // Build a map of emailId → received timestamp
+  const receivedByEmail: Record<string, string> = {};
   for (const e of events) {
-    if (e.event_name === 'invoice.duplicate') continue;
+    if (e.event_name === 'email.received') {
+      const meta = (e.metadata || {}) as Record<string, unknown>;
+      const eid = meta.emailId as string;
+      if (eid) receivedByEmail[eid] = e.occurred_at;
+    }
+  }
+
+  // Correlate terminal events with their email.received
+  const outcomes = events.filter(e =>
+    ['invoice.accepted', 'invoice.rejected', 'invoice.duplicate', 'claim.accepted'].includes(e.event_name)
+  );
+
+  type PipelineRun = {
+    emailId?: string;
+    invoiceType: string;
+    outcome: 'accepted' | 'rejected' | 'duplicate';
+    durationMs: number | null;
+    occurredAt: string;
+  };
+
+  const runs: PipelineRun[] = [];
+  for (const e of outcomes) {
     const meta = (e.metadata || {}) as Record<string, unknown>;
+    const eid = meta.emailId as string;
     const invoiceType = (meta.invoiceType as string) || 'unknown';
-    if (!byType[invoiceType]) {
-      byType[invoiceType] = { accepted: 0, rejected: 0, total: 0, acceptanceRate: 0, avgDurationMs: null };
+    const isAccepted = e.event_name === 'invoice.accepted' || e.event_name === 'claim.accepted';
+    const isDuplicate = e.event_name === 'invoice.duplicate';
+    const outcome = isAccepted ? 'accepted' : isDuplicate ? 'duplicate' : 'rejected';
+
+    let durationMs: number | null = null;
+    if (eid && receivedByEmail[eid]) {
+      durationMs = new Date(e.occurred_at).getTime() - new Date(receivedByEmail[eid]).getTime();
     }
-    if (e.event_name === 'invoice.accepted' || e.event_name === 'claim.accepted') {
-      byType[invoiceType].accepted++;
-    } else if (e.event_name === 'invoice.rejected') {
-      byType[invoiceType].rejected++;
-    }
-    byType[invoiceType].total++;
+
+    runs.push({ emailId: eid, invoiceType, outcome, durationMs, occurredAt: e.occurred_at });
   }
 
-  // Acceptance rate per type
-  for (const stats of Object.values(byType)) {
-    stats.acceptanceRate = stats.total > 0 ? Math.round((stats.accepted / stats.total) * 100) : 0;
-  }
+  // Compute stats
+  const acceptedRuns = runs.filter(r => r.outcome === 'accepted');
+  const rejectedRuns = runs.filter(r => r.outcome === 'rejected');
+  const duplicateRuns = runs.filter(r => r.outcome === 'duplicate');
+  const decidedRuns = runs.filter(r => r.outcome !== 'duplicate');
+  const acceptanceRate = decidedRuns.length > 0
+    ? Math.round((acceptedRuns.length / decidedRuns.length) * 100)
+    : 0;
 
-  // Processing times (from events that have duration_ms)
-  const withDuration = events.filter(e => e.duration_ms != null && e.event_name !== 'invoice.duplicate');
-  const overallAvg = withDuration.length > 0
-    ? Math.round(withDuration.reduce((sum, e) => sum + (e.duration_ms || 0), 0) / withDuration.length)
+  const withDuration = runs.filter(r => r.durationMs != null && r.durationMs > 0);
+  const avgPipelineDurationMs = withDuration.length > 0
+    ? Math.round(withDuration.reduce((sum, r) => sum + r.durationMs!, 0) / withDuration.length)
     : null;
 
-  const durationByType: Record<string, number[]> = {};
-  for (const e of withDuration) {
-    const meta = (e.metadata || {}) as Record<string, unknown>;
-    const invoiceType = (meta.invoiceType as string) || 'unknown';
-    if (!durationByType[invoiceType]) durationByType[invoiceType] = [];
-    durationByType[invoiceType].push(e.duration_ms || 0);
+  // By type
+  type TypeStats = {
+    accepted: number; rejected: number; duplicate: number; total: number;
+    acceptanceRate: number; avgDurationMs: number | null;
+  };
+  const byType: Record<string, TypeStats> = {};
+  for (const r of runs) {
+    if (!byType[r.invoiceType]) {
+      byType[r.invoiceType] = { accepted: 0, rejected: 0, duplicate: 0, total: 0, acceptanceRate: 0, avgDurationMs: null };
+    }
+    byType[r.invoiceType][r.outcome]++;
+    byType[r.invoiceType].total++;
+  }
+  for (const [type, stats] of Object.entries(byType)) {
+    const decided = stats.accepted + stats.rejected;
+    stats.acceptanceRate = decided > 0 ? Math.round((stats.accepted / decided) * 100) : 0;
+    const typeDurations = withDuration.filter(r => r.invoiceType === type);
+    stats.avgDurationMs = typeDurations.length > 0
+      ? Math.round(typeDurations.reduce((s, r) => s + r.durationMs!, 0) / typeDurations.length)
+      : null;
   }
 
-  const avgByType: Record<string, number> = {};
-  for (const [type, durations] of Object.entries(durationByType)) {
-    avgByType[type] = Math.round(durations.reduce((a, b) => a + b, 0) / durations.length);
-    if (byType[type]) byType[type].avgDurationMs = avgByType[type];
-  }
+  // Pipeline stages with counts (for funnel visual)
+  const emailReceivedCount = events.filter(e => e.event_name === 'email.received').length;
+  const evaluatedCount = events.filter(e => e.event_name === 'invoice.evaluated').length;
+
+  const pipeline = {
+    id: 'invoice_intake',
+    name: 'Invoice Intake',
+    stages: [
+      { name: 'Received', count: emailReceivedCount },
+      { name: 'Evaluated', count: evaluatedCount },
+      { name: 'Accepted', count: acceptedRuns.length },
+    ],
+    rejected: rejectedRuns.length,
+    duplicates: duplicateRuns.length,
+    acceptanceRate,
+    avgDurationMs: avgPipelineDurationMs,
+    byType,
+    recentRuns: runs.slice(-30).reverse(),
+  };
 
   return NextResponse.json({
-    totals: {
-      accepted: accepted.length,
-      rejected: rejected.length,
-      duplicate: duplicate.length,
-      total,
-      acceptanceRate,
-    },
-    byType,
-    processingTimes: {
-      overall: overallAvg,
-      byType: avgByType,
-    },
-    recentEvents: events.slice(0, 50),
+    pipelines: [pipeline],
     period: { hours, since },
   });
 }

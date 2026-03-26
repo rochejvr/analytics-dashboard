@@ -4,29 +4,46 @@ import { useState, useEffect, useCallback, use } from 'react';
 import { PageHeader } from '@/components/layout/PageHeader';
 import { MetricCard } from '@/components/shared/MetricCard';
 import { EventTable } from '@/components/shared/EventTable';
+import { PipelineFunnel } from '@/components/shared/PipelineFunnel';
 import { APP_REGISTRY, DATE_RANGES, type AppId } from '@/lib/constants';
 import type { ActivityEvent } from '@/types';
+
+// Apps that have pipeline funnels
+const PIPELINE_APPS = ['invoice_eval'];
 
 export default function AppDetailPage({ params }: { params: Promise<{ appId: string }> }) {
   const { appId } = use(params);
   const app = APP_REGISTRY[appId as AppId];
   const [dateRange, setDateRange] = useState('7d');
   const [events, setEvents] = useState<ActivityEvent[]>([]);
+  const [pipelines, setPipelines] = useState<unknown[]>([]);
   const [loading, setLoading] = useState(true);
 
   const hours = DATE_RANGES.find(r => r.value === dateRange)?.hours || 168;
+  const hasPipelines = PIPELINE_APPS.includes(appId);
 
   const fetchData = useCallback(async () => {
     setLoading(true);
     try {
-      const res = await fetch(`/api/events?hours=${hours}&app=${appId}&limit=100`);
-      const data = await res.json();
-      setEvents(data.events || []);
+      const fetches: Promise<Response>[] = [
+        fetch(`/api/events?hours=${hours}&app=${appId}&limit=100`),
+      ];
+      if (hasPipelines) {
+        fetches.push(fetch(`/api/events/pipeline?hours=${hours}&app=${appId}`));
+      }
+      const responses = await Promise.all(fetches);
+      const eventsData = await responses[0].json();
+      setEvents(eventsData.events || []);
+
+      if (hasPipelines && responses[1]) {
+        const pipelineData = await responses[1].json();
+        setPipelines(pipelineData.pipelines || []);
+      }
     } catch (err) {
       console.error('Failed to fetch app events:', err);
     }
     setLoading(false);
-  }, [hours, appId]);
+  }, [hours, appId, hasPipelines]);
 
   useEffect(() => { fetchData(); }, [fetchData]);
 
@@ -54,6 +71,7 @@ export default function AppDetailPage({ params }: { params: Promise<{ appId: str
           <MetricCard
             label="Avg Duration"
             value={avgDuration != null ? `${(avgDuration / 1000).toFixed(1)}s` : '—'}
+            subtitle="Per event"
             color="var(--warning)"
           />
           <MetricCard
@@ -62,6 +80,12 @@ export default function AppDetailPage({ params }: { params: Promise<{ appId: str
             color="var(--muted)"
           />
         </div>
+
+        {/* Pipeline funnels */}
+        {/* eslint-disable-next-line @typescript-eslint/no-explicit-any */}
+        {pipelines.map((p: any) => (
+          <PipelineFunnel key={p.id} pipeline={p} />
+        ))}
 
         <div
           className="rounded-xl border overflow-hidden"
