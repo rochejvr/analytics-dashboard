@@ -203,11 +203,14 @@ async function handleBomPipeline(hours: number, since: string) {
 
   const passRate = analyze > 0 ? Math.round((passed / analyze) * 100) : 0;
 
-  // Transitions
-  const transitions = computeTransitions(stageMap, [
+  // Transitions — Analyze→Export remapped to Review→Export for display
+  const rawTransitions = computeTransitions(stageMap, [
     ['Data Load', 'Analyze'],
     ['Analyze', 'Export'],
   ]);
+  const transitions = rawTransitions.map(t =>
+    t.from === 'Analyze' && t.to === 'Export' ? { ...t, from: 'Review', to: 'Export' } : t
+  );
 
   // Full pipeline duration (data load → export or → analyze)
   const fullDurations: number[] = [];

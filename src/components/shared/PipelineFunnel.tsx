@@ -23,11 +23,12 @@ interface PipelineData {
 
 interface PipelineFunnelProps { pipeline: PipelineData }
 
-const FILLS = [
-  ['#3b82f6', '#1d4ed8'],
-  ['#0ea5e9', '#0284c7'],
-  ['#14b8a6', '#0d9488'],
-  ['#22c55e', '#16a34a'],
+const GRADIENTS = [
+  'linear-gradient(135deg, #3b82f6 0%, #1d4ed8 100%)',
+  'linear-gradient(135deg, #06b6d4 0%, #0e7490 100%)',
+  'linear-gradient(135deg, #14b8a6 0%, #0f766e 100%)',
+  'linear-gradient(135deg, #22c55e 0%, #15803d 100%)',
+  'linear-gradient(135deg, #10b981 0%, #047857 100%)',
 ];
 
 const TYPE_COLORS: Record<string, string> = {
@@ -47,12 +48,14 @@ function fmt(ms: number): string {
   return rm > 0 ? `${h}h ${rm}m` : `${h}h`;
 }
 
-function tColor(ms: number): string {
-  if (ms < 5000) return '#22c55e';
+function tColor(ms: number) {
+  if (ms < 5000) return '#16a34a';
   if (ms < 30000) return '#2563eb';
-  if (ms < 120000) return '#f59e0b';
-  return '#ef4444';
+  if (ms < 120000) return '#d97706';
+  return '#dc2626';
 }
+
+const MAX_TAPER = 16; // max % indent from top/bottom
 
 export function PipelineFunnel({ pipeline }: PipelineFunnelProps) {
   const { stages, rejectedStage, transitions, passRate, passLabel, avgDurationMs, extraMetrics, byType } = pipeline;
@@ -60,228 +63,199 @@ export function PipelineFunnel({ pipeline }: PipelineFunnelProps) {
   const n = stages.length;
   const types = Object.entries(byType).sort((a, b) => b[1].total - a[1].total);
 
+  // Transition lookup — check both exact match and one-stage-back match
   const tm: Record<string, Transition> = {};
-  for (const t of transitions) tm[`${t.from}→${t.to}`] = t;
-  const hasTiming = transitions.length > 0;
-
-  // SVG geometry
-  const W = 480, maxH = 72;
-  const timingRow = hasTiming ? 28 : 0;
-  const top = timingRow + 4;
-  const cy = top + maxH / 2;
-  const descY = top + maxH + 12;
-  const descH = stages.some(s => s.description) ? 12 : 0;
-  const rejH = rejectedStage && rejectedStage.count > 0 ? 34 : 0;
-  const H = descY + descH + 4 + rejH;
-  const sw = W / n, gap = 2;
-
-  const ht = (i: number) => Math.max((i < n ? stages[i].count : stages[n - 1].count) / maxCount, 0.06) * maxH;
-
-  const shapes = stages.map((stage, i) => {
-    const x1 = i * sw + (i > 0 ? gap : 0);
-    const x2 = (i + 1) * sw - (i < n - 1 ? gap : 0);
-    const hL = ht(i), hR = ht(i + 1);
-    const fills = FILLS[Math.min(i, FILLS.length - 1)];
-    return { x1, x2, hL, hR, cx: (x1 + x2) / 2, fills, stage, i, isLast: i === n - 1 };
-  });
-
-  // Conversion % at each boundary
-  const convAt = (i: number) => {
-    if (i >= n - 1 || stages[i].count === 0) return null;
-    return Math.round((stages[i + 1].count / stages[i].count) * 100);
+  for (const t of transitions) {
+    tm[`${t.from}→${t.to}`] = t;
+  }
+  const findTrans = (from: string, to: string): Transition | null => {
+    // Direct match
+    if (tm[`${from}→${to}`]) return tm[`${from}→${to}`];
+    // Check if previous stage name maps to same event (e.g., Review → Export maps to Analyze → Export)
+    const fromIdx = stages.findIndex(s => s.name === from);
+    if (fromIdx > 0) {
+      const prevName = stages[fromIdx - 1].name;
+      if (tm[`${prevName}→${to}`]) return tm[`${prevName}→${to}`];
+    }
+    return null;
   };
+
+  const inset = (count: number) => (1 - Math.max(count / maxCount, 0.08)) * MAX_TAPER;
 
   return (
     <div className="rounded-xl border overflow-hidden" style={{ background: 'var(--card)', borderColor: 'var(--card-border)' }}>
-      {/* Header */}
-      <div className="px-4 py-2 flex items-center justify-between border-b" style={{ borderColor: 'var(--card-border)' }}>
-        <div className="flex items-center gap-2">
-          <div className="w-1.5 h-3.5 rounded-full" style={{ background: 'var(--accent)' }} />
-          <span className="text-[13px] font-semibold" style={{ color: 'var(--foreground)' }}>{pipeline.name}</span>
+      {/* ── Header ── */}
+      <div className="px-5 py-2.5 flex items-center justify-between border-b" style={{ borderColor: 'var(--card-border)' }}>
+        <div className="flex items-center gap-2.5">
+          <div className="w-1.5 h-5 rounded-full" style={{ background: 'var(--accent)' }} />
+          <span className="text-sm font-bold" style={{ color: 'var(--foreground)' }}>{pipeline.name}</span>
         </div>
         {avgDurationMs != null && (
-          <span className="text-[10px] tabular-nums px-2 py-0.5 rounded-full" style={{ color: 'var(--muted)', background: 'var(--background)' }}>
+          <span className="text-[11px] font-semibold tabular-nums px-2.5 py-1 rounded-full"
+            style={{ color: 'var(--muted)', background: 'var(--background)' }}>
             Avg {fmt(avgDurationMs)}
           </span>
         )}
       </div>
 
       <div className="flex">
-        {/* SVG Funnel */}
-        <div className="flex-1 min-w-0 px-3 pt-1 pb-2">
-          <svg viewBox={`0 0 ${W} ${H}`} className="w-full" preserveAspectRatio="xMidYMid meet">
-            <defs>
-              {shapes.map(s => (
-                <linearGradient key={s.i} id={`fg${pipeline.id}${s.i}`} x1="0" y1="0" x2="1" y2="0">
-                  <stop offset="0%" stopColor={s.fills[0]} />
-                  <stop offset="100%" stopColor={s.fills[1]} />
-                </linearGradient>
-              ))}
-              {/* Subtle top highlight */}
-              <linearGradient id={`fghl${pipeline.id}`} x1="0" y1="0" x2="0" y2="1">
-                <stop offset="0%" stopColor="#ffffff" stopOpacity="0.25" />
-                <stop offset="50%" stopColor="#ffffff" stopOpacity="0" />
-              </linearGradient>
-            </defs>
+        {/* ── Funnel area ── */}
+        <div className="flex-1 min-w-0 p-5 pr-3">
+          {/* Funnel blocks row */}
+          <div className="flex items-stretch" style={{ height: 88 }}>
+            {stages.map((stage, i) => {
+              const leftIn = inset(stage.count);
+              const nextCount = i < n - 1 ? stages[i + 1].count : stage.count;
+              const rightIn = inset(nextCount);
+              const grad = GRADIENTS[Math.min(i, GRADIENTS.length - 1)];
+              const isLast = i === n - 1;
 
-            {/* Timing pills above funnel */}
-            {hasTiming && stages.slice(0, -1).map((stage, i) => {
-              const tr = tm[`${stage.name}→${stages[i + 1].name}`];
-              if (!tr) return null;
-              const bx = (i + 1) * sw;
-              const tc = tColor(tr.avgMs);
-              const label = fmt(tr.avgMs);
-              const tw = Math.max(label.length * 5.5 + 14, 36);
+              // Connector data
+              const nextStage = !isLast ? stages[i + 1] : null;
+              const trans = nextStage ? findTrans(stage.name, nextStage.name) : null;
+              const conv = nextStage && stage.count > 0
+                ? Math.round((nextStage.count / stage.count) * 100) : null;
+
               return (
-                <g key={`t${i}`}>
-                  <rect x={bx - tw / 2} y={2} width={tw} height={16} rx={8}
-                    fill={`${tc}14`} stroke={`${tc}30`} strokeWidth="0.7" />
-                  <text x={bx} y={11} textAnchor="middle" dominantBaseline="central"
-                    fill={tc} fontSize="8" fontWeight="700"
-                    style={{ fontFamily: 'ui-monospace, monospace' }}>
-                    {label}
-                  </text>
-                  {/* Dotted line down to funnel */}
-                  <line x1={bx} y1={18} x2={bx} y2={cy - ht(i + 1) / 2}
-                    stroke={tc} strokeWidth="0.6" strokeDasharray="2,2" opacity="0.35" />
-                </g>
+                <div key={i} className="contents">
+                  {/* Stage block */}
+                  <div
+                    className="flex-1 flex flex-col items-center justify-center relative min-w-0"
+                    style={{
+                      background: grad,
+                      clipPath: `polygon(0% ${leftIn}%, 100% ${rightIn}%, 100% ${100 - rightIn}%, 0% ${100 - leftIn}%)`,
+                    }}
+                  >
+                    <span className="text-[10px] font-bold text-white/80 tracking-widest uppercase leading-none">
+                      {stage.name}
+                    </span>
+                    <span className="text-[26px] font-black text-white tabular-nums leading-none mt-1"
+                      style={{ fontFamily: 'ui-monospace, SFMono-Regular, monospace' }}>
+                      {stage.count}
+                    </span>
+                  </div>
+
+                  {/* Connector between stages */}
+                  {nextStage && (
+                    <div className="flex flex-col items-center justify-center shrink-0" style={{ width: 52 }}>
+                      {/* Timing pill */}
+                      {trans ? (
+                        <div
+                          className="text-[9px] font-bold tabular-nums px-2 py-[3px] rounded-full leading-none whitespace-nowrap"
+                          style={{
+                            color: tColor(trans.avgMs),
+                            background: `color-mix(in srgb, ${tColor(trans.avgMs)} 8%, transparent)`,
+                            border: `1px solid color-mix(in srgb, ${tColor(trans.avgMs)} 18%, transparent)`,
+                          }}
+                        >
+                          {fmt(trans.avgMs)}
+                        </div>
+                      ) : (
+                        <div style={{ height: 18 }} />
+                      )}
+                      {/* Arrow */}
+                      <svg width="16" height="8" viewBox="0 0 16 8" className="my-1 shrink-0" style={{ color: 'var(--card-border)' }}>
+                        <path d="M0 4H13M10 1L13 4L10 7" stroke="currentColor" strokeWidth="1.3" fill="none" strokeLinecap="round" strokeLinejoin="round" />
+                      </svg>
+                      {/* Conversion % */}
+                      {conv != null && (
+                        <span className="text-[9px] font-semibold tabular-nums leading-none"
+                          style={{ color: 'var(--muted)', opacity: 0.7 }}>
+                          {conv}%
+                        </span>
+                      )}
+                    </div>
+                  )}
+                </div>
               );
             })}
 
-            {/* Funnel trapezoids */}
-            {shapes.map(s => (
-              <g key={s.i}>
-                {/* Main shape */}
-                <path
-                  d={`M${s.x1},${cy - s.hL / 2}L${s.x2},${cy - s.hR / 2}L${s.x2},${cy + s.hR / 2}L${s.x1},${cy + s.hL / 2}Z`}
-                  fill={`url(#fg${pipeline.id}${s.i})`}
-                />
-                {/* Top highlight for 3D effect */}
-                <path
-                  d={`M${s.x1},${cy - s.hL / 2}L${s.x2},${cy - s.hR / 2}L${s.x2},${cy + s.hR / 2}L${s.x1},${cy + s.hL / 2}Z`}
-                  fill={`url(#fghl${pipeline.id})`}
-                />
-                {/* Stage name inside block */}
-                <text x={s.cx} y={cy - 8} textAnchor="middle" dominantBaseline="central"
-                  fill="white" fontSize="8.5" fontWeight="600" opacity="0.85"
-                  letterSpacing="0.3">
-                  {s.stage.name}
-                </text>
-                {/* Count inside block */}
-                {s.stage.count > 0 ? (
-                  <text x={s.cx} y={cy + 7} textAnchor="middle" dominantBaseline="central"
-                    fill="white" fontSize="16" fontWeight="800"
-                    style={{ fontFamily: 'ui-monospace, monospace' }}>
-                    {s.stage.count}
-                  </text>
-                ) : (
-                  <text x={s.cx} y={cy + 7} textAnchor="middle" dominantBaseline="central"
-                    fill="white" fontSize="12" fontWeight="600" opacity="0.5">
-                    0
-                  </text>
-                )}
-                {/* Description below */}
-                {s.stage.description && (
-                  <text x={s.cx} y={descY} textAnchor="middle"
-                    fill="var(--muted)" fontSize="8" fontWeight="400" opacity="0.7">
-                    {s.stage.description}
-                  </text>
-                )}
-              </g>
-            ))}
+            {/* Rejected/failed indicator */}
+            {rejectedStage && rejectedStage.count > 0 && (
+              <div className="flex flex-col items-center justify-center shrink-0 ml-1.5 pl-3 border-l border-dashed"
+                style={{ borderColor: 'var(--card-border)' }}>
+                <span className="text-[9px] font-bold tracking-wider uppercase" style={{ color: 'var(--error)', opacity: 0.7 }}>
+                  {rejectedStage.name}
+                </span>
+                <span className="text-xl font-black tabular-nums leading-none mt-0.5"
+                  style={{ color: 'var(--error)', fontFamily: 'ui-monospace, SFMono-Regular, monospace' }}>
+                  {rejectedStage.count}
+                </span>
+              </div>
+            )}
+          </div>
 
-            {/* Conversion % badges at boundaries */}
-            {stages.slice(0, -1).map((_, i) => {
-              const pct = convAt(i);
-              if (pct == null) return null;
-              const bx = (i + 1) * sw;
-              const bh = ht(i + 1);
-              // Position: on the boundary line, bottom edge of funnel
-              const by = cy + bh / 2 + 1;
-              return (
-                <g key={`cv${i}`}>
-                  <text x={bx} y={by + 10} textAnchor="middle"
-                    fill="var(--muted)" fontSize="8" fontWeight="600" opacity="0.6"
-                    style={{ fontFamily: 'ui-monospace, monospace' }}>
-                    {pct}%
-                  </text>
-                </g>
-              );
-            })}
-
-            {/* Rejected leak */}
-            {rejectedStage && rejectedStage.count > 0 && (() => {
-              const fromIdx = stages.findIndex(s => s.name === rejectedStage.fromStage);
-              const bx = fromIdx >= 0 ? (fromIdx + 1) * sw : W * 0.7;
-              const by = cy + ht(fromIdx >= 0 ? fromIdx + 1 : n - 1) / 2;
-              return (
-                <g>
-                  {/* Drip path */}
-                  <path d={`M${bx},${by} L${bx - 10},${by + 14} L${bx + 10},${by + 14}Z`}
-                    fill="#ef444425" />
-                  <text x={bx} y={by + 24} textAnchor="middle"
-                    fill="#ef4444" fontSize="11" fontWeight="800"
-                    style={{ fontFamily: 'ui-monospace, monospace' }}>
-                    {rejectedStage.count}
-                  </text>
-                  <text x={bx} y={by + 33} textAnchor="middle"
-                    fill="#ef4444" fontSize="7.5" fontWeight="500" opacity="0.7">
-                    {rejectedStage.name}
-                  </text>
-                </g>
-              );
-            })()}
-          </svg>
+          {/* Descriptions row — aligned under each block */}
+          {stages.some(s => s.description) && (
+            <div className="flex mt-2.5">
+              {stages.map((stage, i) => {
+                const isLast = i === n - 1;
+                return (
+                  <div key={i} className="contents">
+                    <div className="flex-1 min-w-0 text-center">
+                      <span className="text-[10px] leading-tight" style={{ color: 'var(--muted)' }}>
+                        {stage.description}
+                      </span>
+                    </div>
+                    {!isLast && <div className="shrink-0" style={{ width: 52 }} />}
+                  </div>
+                );
+              })}
+              {rejectedStage && rejectedStage.count > 0 && (
+                <div className="shrink-0" style={{ width: 52 }} />
+              )}
+            </div>
+          )}
         </div>
 
-        {/* KPI sidebar */}
-        <div className="shrink-0 border-l flex flex-col justify-center gap-2 px-3 py-2" style={{ borderColor: 'var(--card-border)', width: 130 }}>
-          {/* Pass rate — ring */}
-          <div className="flex items-center gap-2">
-            <div className="relative" style={{ width: 36, height: 36 }}>
+        {/* ── KPI sidebar ── */}
+        <div className="shrink-0 border-l flex flex-col items-center justify-center gap-5 py-5"
+          style={{ borderColor: 'var(--card-border)', width: 160 }}>
+          {/* Pass rate ring */}
+          <div className="text-center">
+            <div className="relative mx-auto" style={{ width: 56, height: 56 }}>
               <svg viewBox="0 0 36 36" className="w-full h-full -rotate-90">
-                <circle cx="18" cy="18" r="14" fill="none" stroke="var(--card-border)" strokeWidth="2.5" />
-                <circle cx="18" cy="18" r="14" fill="none"
+                <circle cx="18" cy="18" r="15" fill="none" stroke="var(--card-border)" strokeWidth="2.5" />
+                <circle cx="18" cy="18" r="15" fill="none"
                   stroke={passRate >= 80 ? '#22c55e' : passRate >= 50 ? '#f59e0b' : '#ef4444'}
                   strokeWidth="2.5"
-                  strokeDasharray={`${passRate * 0.88} 88`}
+                  strokeDasharray={`${passRate * 0.942} 94.2`}
                   strokeLinecap="round" />
               </svg>
-              <span className="absolute inset-0 flex items-center justify-center text-[9px] font-bold tabular-nums"
+              <span className="absolute inset-0 flex items-center justify-center text-base font-extrabold tabular-nums"
                 style={{ color: passRate >= 80 ? '#16a34a' : passRate >= 50 ? '#d97706' : '#dc2626' }}>
                 {passRate}%
               </span>
             </div>
-            <span className="text-[10px] font-medium leading-tight" style={{ color: 'var(--muted)' }}>
-              {passLabel}
-            </span>
+            <div className="text-[11px] font-semibold mt-1.5" style={{ color: 'var(--muted)' }}>{passLabel}</div>
           </div>
 
           {/* Extra metrics */}
           {extraMetrics?.map(m => (
-            <div key={m.label} className="flex items-center gap-2">
-              <div className="w-9 h-9 rounded-lg flex items-center justify-center" style={{ background: 'var(--background)' }}>
-                <span className="text-[11px] font-bold tabular-nums" style={{ color: m.color || 'var(--muted)' }}>
+            <div key={m.label} className="flex items-center gap-2.5">
+              <div className="w-10 h-10 rounded-lg flex items-center justify-center shrink-0"
+                style={{ background: 'var(--background)' }}>
+                <span className="text-sm font-extrabold tabular-nums" style={{ color: m.color || 'var(--muted)' }}>
                   {m.value}
                 </span>
               </div>
-              <span className="text-[10px] font-medium" style={{ color: 'var(--muted)' }}>{m.label}</span>
+              <span className="text-[11px] font-medium leading-tight" style={{ color: 'var(--muted)' }}>{m.label}</span>
             </div>
           ))}
         </div>
       </div>
 
-      {/* Type breakdown */}
+      {/* ── Type breakdown ── */}
       {types.length > 1 && (
-        <div className="px-4 py-2 border-t" style={{ borderColor: 'var(--card-border)' }}>
-          <div className="flex flex-wrap gap-x-5 gap-y-1">
+        <div className="px-5 py-2.5 border-t" style={{ borderColor: 'var(--card-border)' }}>
+          <div className="flex flex-wrap gap-x-5 gap-y-1.5">
             {types.map(([type, stats]) => (
-              <div key={type} className="flex items-center gap-2 min-w-[130px]">
-                <span className="w-1.5 h-1.5 rounded-full" style={{ background: TYPE_COLORS[type] || '#94a3b8' }} />
-                <span className="text-[10px] font-medium" style={{ color: 'var(--foreground)' }}>
+              <div key={type} className="flex items-center gap-2 min-w-[140px]">
+                <span className="w-2 h-2 rounded-full shrink-0" style={{ background: TYPE_COLORS[type] || '#94a3b8' }} />
+                <span className="text-[11px] font-medium" style={{ color: 'var(--foreground)' }}>
                   {TYPE_LABELS[type] || type}
                 </span>
-                <span className="text-[9px] tabular-nums" style={{ color: 'var(--muted)' }}>
+                <span className="text-[10px] tabular-nums" style={{ color: 'var(--muted)' }}>
                   {stats.acceptanceRate}%·{stats.accepted + stats.rejected}
                 </span>
                 <div className="flex-1 h-1 rounded-full overflow-hidden" style={{ background: 'var(--card-border)', minWidth: 24 }}>
