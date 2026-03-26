@@ -199,6 +199,10 @@ export function PipelineFunnel({ pipeline }: PipelineFunnelProps) {
                   {i < n - 1 && <div className="shrink-0" style={{ width: 40 }} />}
                 </div>
               ))}
+              {/* Match rejected indicator width so last description doesn't bleed */}
+              {rejectedStage && rejectedStage.count > 0 && (
+                <div className="shrink-0 ml-1.5 pl-3" style={{ width: 52 }} />
+              )}
             </div>
           )}
         </div>
