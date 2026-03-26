@@ -80,7 +80,15 @@ export function PipelineFunnel({ pipeline }: PipelineFunnelProps) {
     return null;
   };
 
-  const inset = (count: number) => (1 - Math.max(count / maxCount, 0.08)) * MAX_TAPER;
+  const rawInset = (count: number) => (1 - Math.max(count / maxCount, 0.08)) * MAX_TAPER;
+
+  // Pre-compute insets ensuring the funnel never widens (monotonic narrowing)
+  const insets: number[] = [];
+  for (let i = 0; i <= n; i++) {
+    const count = i < n ? stages[i].count : stages[n - 1].count;
+    const raw = rawInset(count);
+    insets.push(i === 0 ? raw : Math.max(raw, insets[i - 1]));
+  }
 
   return (
     <div className="rounded-xl border overflow-hidden" style={{ background: 'var(--card)', borderColor: 'var(--card-border)' }}>
@@ -107,9 +115,8 @@ export function PipelineFunnel({ pipeline }: PipelineFunnelProps) {
           {/* Funnel blocks row */}
           <div className="flex items-stretch" style={{ height: 88 }}>
             {stages.map((stage, i) => {
-              const leftIn = inset(stage.count);
-              const nextCount = i < n - 1 ? stages[i + 1].count : stage.count;
-              const rightIn = inset(nextCount);
+              const leftIn = insets[i];
+              const rightIn = insets[i + 1];
               const grad = GRADIENTS[Math.min(i, GRADIENTS.length - 1)];
               const isLast = i === n - 1;
 

@@ -62,30 +62,37 @@ async function handleInvoicePipeline(hours: number, since: string) {
   const rejected = events.filter(e => e.event_name === 'invoice.rejected').length;
   const duplicates = events.filter(e => e.event_name === 'invoice.duplicate').length;
 
-  // Compute inter-stage timings
-  const transitions = computeTransitions(stageMap, [
-    ['Received', 'Evaluated'],
-    ['Evaluated', 'Accepted'],
-  ]);
-
-  // Also compute Evaluated → Rejected timing
-  const rejTransitions = computeTransitions(stageMap, [['Evaluated', 'Rejected']]);
-
   const decided = accepted + rejected;
   const acceptanceRate = decided > 0 ? Math.round((accepted / decided) * 100) : 0;
 
-  // Full pipeline duration
-  const fullDurations: number[] = [];
+  // Per-stage average durations
+  const stageDurations: Record<string, number[]> = {
+    'Received': [], 'Evaluated': [],
+  };
   for (const stages of Object.values(stageMap)) {
-    if (stages['Received'] && (stages['Accepted'] || stages['Rejected'])) {
-      const end = stages['Accepted'] || stages['Rejected'];
-      const ms = new Date(end).getTime() - new Date(stages['Received']).getTime();
-      if (ms > 0) fullDurations.push(ms);
+    // Received → Evaluated (time waiting + LLM processing)
+    if (stages['Received'] && stages['Evaluated']) {
+      const ms = new Date(stages['Evaluated']).getTime() - new Date(stages['Received']).getTime();
+      if (ms >= 0 && ms < 3600000) stageDurations['Received'].push(ms);
+    }
+    // Evaluated → Accepted/Rejected (compliance check + save + email)
+    const terminal = stages['Accepted'] || stages['Rejected'];
+    if (stages['Evaluated'] && terminal) {
+      const ms = new Date(terminal).getTime() - new Date(stages['Evaluated']).getTime();
+      if (ms >= 0 && ms < 3600000) stageDurations['Evaluated'].push(ms);
     }
   }
-  const avgDurationMs = fullDurations.length > 0
-    ? Math.round(fullDurations.reduce((a, b) => a + b, 0) / fullDurations.length)
-    : null;
+  const avgStageDur = (key: string) => {
+    const d = stageDurations[key];
+    return d && d.length > 0 ? Math.round(d.reduce((a, b) => a + b, 0) / d.length) : null;
+  };
+
+  // Total = sum of stage averages
+  const stageAvgs = ['Received', 'Evaluated'].map(avgStageDur).filter((v): v is number => v != null);
+  const avgDurationMs = stageAvgs.length > 0 ? stageAvgs.reduce((a, b) => a + b, 0) : null;
+
+  // Conversion transitions (no timing — timing is in stage blocks now)
+  const transitions: { from: string; to: string; avgMs: number; medianMs: number; count: number }[] = [];
 
   // By invoice type
   const terminalEvents = events.filter(e =>
@@ -98,15 +105,12 @@ async function handleInvoicePipeline(hours: number, since: string) {
       id: 'invoice_intake',
       name: 'Invoice Intake',
       stages: [
-        { name: 'Received', count: received, description: 'Email hits intake' },
-        { name: 'Evaluated', count: evaluated, description: 'LLM extracts and validates' },
+        { name: 'Received', count: received, description: 'Email hits intake', avgDurationMs: avgStageDur('Received') },
+        { name: 'Evaluated', count: evaluated, description: 'LLM extracts and validates', avgDurationMs: avgStageDur('Evaluated') },
         { name: 'Accepted', count: accepted, description: 'Passes compliance checks' },
       ],
       rejectedStage: { name: 'Rejected', count: rejected, fromStage: 'Evaluated' },
-      transitions: [
-        ...transitions,
-        ...(rejTransitions.length > 0 ? rejTransitions.map(t => ({ ...t, to: 'Rejected' })) : []),
-      ],
+      transitions,
       passRate: acceptanceRate,
       passLabel: 'Acceptance',
       avgDurationMs,
